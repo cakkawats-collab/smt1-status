@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Status Machine - SMT 1</title>
+<style>
+/* สีอ้างอิงจากป้ายจริงในไลน์: พื้นป้ายเขียว ป้ายหัวข้อเหลือง ป้ายสถานะแต่ละสี */
+:root{--board:#0e5a2f;--label:#f3dc1a;--ink:#111}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--board);color:var(--ink);font-family:"Segoe UI",Roboto,"Noto Sans Thai",system-ui,sans-serif;overflow:hidden}
+
+/* ---------- หน้าจอแสดงผล (เต็มจอ ใช้หน่วย vh/vw จึงพอดีทุกขนาดจอ) ---------- */
+#disp{height:100vh;padding:2.2vh 2vw;display:grid;grid-template-rows:19fr 29fr 46fr;gap:2.2vh;cursor:none}
+.card{border-radius:1.4vh;border:.4vh solid rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;text-align:center;transition:background .4s}
+.hd{background:var(--label);font-size:10.5vh;font-weight:700}
+.mid{display:grid;grid-template-columns:1fr 1fr;gap:2vw}
+.val{font-size:9vh;font-weight:800;line-height:1.05;padding:0 1vw}
+.bot{flex-direction:column;background:#101010;border-color:#000;overflow:hidden;justify-content:stretch}
+.line{flex:1;display:flex;align-items:center;color:#fff;font-size:25vh;font-weight:800;line-height:1}
+.st{width:100%;padding:1.6vh 0;font-size:8.5vh;font-weight:800;transition:background .4s}
+.pulse{animation:pulse .9s ease-out}
+@keyframes pulse{0%{transform:scale(1)}25%{transform:scale(1.035);filter:brightness(1.15)}100%{transform:scale(1)}}
+.sel{outline:.9vh dashed #fff;outline-offset:.5vh}
+
+/* ---------- หน้าควบคุม (เปิดด้วย #control หรือกดปุ่ม C) ---------- */
+#ctl{display:none;min-height:100vh;padding:20px;background:#15171a;color:#eee;overflow:auto}
+body.ctl{overflow:auto}
+body.ctl #disp{display:none}
+body.ctl #ctl{display:block}
+#ctl h1{font-size:20px;margin:0 0 4px}
+#ctl p{margin:0 0 18px;color:#aab;font-size:14px;line-height:1.5}
+.row{display:grid;grid-template-columns:64px 1fr 64px;gap:10px;align-items:center;max-width:520px;margin-bottom:12px}
+.row button{height:64px;border:0;border-radius:12px;background:#2a2e34;color:#8ec5ff;font-size:28px;cursor:pointer}
+.row button:active{background:#3a7bd5;color:#fff}
+.row button:focus-visible{outline:3px solid #fff}
+.chip{height:64px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--ink);text-align:center;padding:0 8px}
+.lab{max-width:520px;margin:14px 0 4px;color:#aab;font-size:14px}
+#ctl .back{margin-top:18px;height:44px;padding:0 18px;border:1px solid #556;border-radius:10px;background:transparent;color:#ddd;font-size:15px;cursor:pointer}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}.card,.st{transition:none}}
+</style>
+</head>
+<body>
+
+<div id="disp">
+  <div class="card hd">Status Machine</div>
+  <div class="mid">
+    <div class="card" id="cm"><span class="val" id="vm"></span></div>
+    <div class="card" id="cp"><span class="val" id="vp"></span></div>
+  </div>
+  <div class="card bot" id="cs">
+    <div class="line" id="vl"></div>
+    <div class="st" id="vs"></div>
+  </div>
+</div>
+
+<div id="ctl">
+  <h1>ควบคุมป้าย Status Machine</h1>
+  <p>กดลูกศรเพื่อเปลี่ยนสถานะ จอแสดงผลจะเปลี่ยนตามทันที</p>
+  <div class="lab">โมเดล</div><div class="row"><button data-k="m" data-d="-1" aria-label="โมเดลก่อนหน้า">◀</button><div class="chip" id="km"></div><button data-k="m" data-d="1" aria-label="โมเดลถัดไป">▶</button></div>
+  <div class="lab">แผนการผลิต</div><div class="row"><button data-k="p" data-d="-1" aria-label="แผนก่อนหน้า">◀</button><div class="chip" id="kp"></div><button data-k="p" data-d="1" aria-label="แผนถัดไป">▶</button></div>
+  <div class="lab">สถานะเครื่อง</div><div class="row"><button data-k="s" data-d="-1" aria-label="สถานะก่อนหน้า">◀</button><div class="chip" id="ks"></div><button data-k="s" data-d="1" aria-label="สถานะถัดไป">▶</button></div>
+  <button class="back" id="toDisp">ดูหน้าจอแสดงผล</button>
+</div>
+
+<script>
+/*
+  วิธีใช้
+  - เปิดไฟล์นี้ใน Chrome บน Android box แล้วกด F11 หรือดับเบิลคลิกเพื่อเต็มจอ
+  - รีโมตกล่อง Android: ลูกศร ขึ้น/ลง เลือกช่อง ซ้าย/ขวา เปลี่ยนสถานะ
+  - ปุ่ม C สลับไปหน้าควบคุม (หรือเปิดด้วย #control)
+  - ?line=SMT%202      เปลี่ยนชื่อไลน์
+  - ?demo=1            เล่นสลับสถานะอัตโนมัติ เพื่อทดสอบ
+  - ?src=http://IP     ซิงก์กับอุปกรณ์อื่นผ่าน HTTP (ต้องมีตัวรับ /state และ /set) ดูท้ายไฟล์
+*/
+const OPT = {
+  m: [["Running","#9ad79a"],["Change model","#a9d6f2"],["New Model","#e9a3b8"]],
+  p: [["On Plan","#7cc47c"],["Delay Plan","#f0dc1e"]],
+  s: [["Production","#9ad79a"],["Maintenance","#f0dc1e"]]
+};
+const KEYS = ["m","p","s"];
+const qs = new URLSearchParams(location.search);
+const SRC = (qs.get("src") || "").replace(/\/$/, "");
+const LINE = qs.get("line") || "SMT 1";
+const $ = id => document.getElementById(id);
+
+function clean(o){
+  const r = {};
+  KEYS.forEach(k => {
+    const v = parseInt(o && o[k], 10);
+    r[k] = (v >= 0 && v < OPT[k].length) ? v : 0;
+  });
+  return r;
+}
+let st = {m:2,p:0,s:0};
+try { st = clean(JSON.parse(localStorage.getItem("smt-status") || "{}")); } catch(e){}
+const bc = "BroadcastChannel" in window ? new BroadcastChannel("smt-status") : null;
+
+const targets = { m:["cm","vm","km"], p:["cp","vp","kp"], s:["cs","vs","ks"] };
+function render(changed){
+  $("vl").textContent = LINE;
+  KEYS.forEach(k => {
+    const [name, color] = OPT[k][st[k]];
+    const [card, val, chip] = targets[k];
+    $(val).textContent = name;
+    $(chip).textContent = name;
+    $(chip).style.background = color;
+    // ช่องสถานะเครื่อง: แถบสีอยู่ใต้ชื่อไลน์ ช่องอื่นเปลี่ยนสีทั้งการ์ด
+    (k === "s" ? $("vs") : $(card)).style.background = color;
+    if (changed && changed.includes(k)) {
+      const el = $(card); el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
+    }
+  });
+}
+function apply(o){
+  const n = clean(o), ch = KEYS.filter(k => n[k] !== st[k]);
+  if (!ch.length) return;
+  st = n; localStorage.setItem("smt-status", JSON.stringify(st)); render(ch);
+}
+function setKey(k, v){
+  st = Object.assign({}, st, {[k]: v});
+  localStorage.setItem("smt-status", JSON.stringify(st));
+  render([k]);
+  if (bc) bc.postMessage(st);
+  if (SRC) fetch(SRC + "/set?m=" + st.m + "&p=" + st.p + "&s=" + st.s, {mode:"no-cors"}).catch(() => {});
+}
+function step(k, d){ const n = OPT[k].length; setKey(k, (st[k] + d + n) % n); }
+
+if (bc) bc.onmessage = e => apply(e.data);
+addEventListener("storage", e => { if (e.key === "smt-status" && e.newValue) apply(JSON.parse(e.newValue)); });
+if (SRC) setInterval(() => {
+  fetch(SRC + "/state", {cache:"no-store"}).then(r => r.json()).then(apply).catch(() => {});
+}, 700);
+
+/* รีโมต/คีย์บอร์ด */
+let selIdx = 0, selTimer;
+function showSel(){
+  ["cm","cp","cs"].forEach((id,i) => $(id).classList.toggle("sel", i === selIdx));
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => ["cm","cp","cs"].forEach(id => $(id).classList.remove("sel")), 3000);
+}
+addEventListener("keydown", e => {
+  if (e.key === "ArrowUp")   { selIdx = (selIdx + 2) % 3; showSel(); }
+  else if (e.key === "ArrowDown") { selIdx = (selIdx + 1) % 3; showSel(); }
+  else if (e.key === "ArrowLeft")  { step(KEYS[selIdx], -1); showSel(); }
+  else if (e.key === "ArrowRight") { step(KEYS[selIdx], 1);  showSel(); }
+  else if (e.key === "c" || e.key === "C") { document.body.classList.toggle("ctl"); }
+  else return;
+  e.preventDefault();
+});
+document.querySelectorAll("#ctl .row button").forEach(b =>
+  b.addEventListener("click", () => step(b.dataset.k, parseInt(b.dataset.d, 10))));
+$("toDisp").addEventListener("click", () => document.body.classList.remove("ctl"));
+$("disp").addEventListener("dblclick", () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+});
+if (location.hash === "#control") document.body.classList.add("ctl");
+
+if (qs.get("demo")) {
+  const seq = [["m",1],["p",1],["s",1],["m",1],["p",1],["s",1],["m",1]];
+  let i = 0;
+  setInterval(() => { const [k,d] = seq[i++ % seq.length]; step(k, d); }, 3000);
+}
+render();
+
+/*
+  ซิงก์ข้ามอุปกรณ์ (ไม่บังคับ): ถ้าเปิดด้วย ?src=http://192.168.4.1
+  ตัวรับต้องตอบ GET /state เป็น JSON เช่น {"m":2,"p":0,"s":0}
+  และรับ GET /set?m=2&p=0&s=0 พร้อมส่ง header Access-Control-Allow-Origin: *
+  ค่า m, p, s ตรงกับลำดับในไฟล์ common.h ของโปรเจกต์ ESP32
+  (m: 0 Running, 1 Change model, 2 New Model / p: 0 On Plan, 1 Delay Plan / s: 0 Production, 1 Maintenance)
+*/
+</script>
+</body>
+</html>
