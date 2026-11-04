@@ -19,8 +19,8 @@ body{background:var(--board);color:var(--ink);font-family:"Segoe UI",Roboto,"Not
 .val{font-size:9vh;font-weight:800;line-height:1.05;padding:0 1vw}
 .bot{flex-direction:column;background:#101010;border-color:#000;overflow:hidden;justify-content:stretch}
 .line-wrap{flex:1;display:flex;align-items:center;justify-content:center;gap:2.5vw;padding:0 2vw}
-.line{color:#fff;font-size:21vh;font-weight:800;line-height:1;white-space:nowrap}
-.rohs-badge{padding:1vh 2.4vw;border-radius:1.2vh;border:.4vh solid #fff;font-size:9.5vh;font-weight:800;line-height:1.1;letter-spacing:.04em;transition:background .4s,color .4s;white-space:nowrap}
+.line{color:#fff;font-size:22vh;font-weight:800;line-height:1}
+.rohs-badge{padding:1vh 2.4vw;border-radius:1.2vh;border:.4vh solid #fff;font-size:10vh;font-weight:800;line-height:1.1;letter-spacing:.04em;transition:background .4s,color .4s}
 .rohs-badge.hide{display:none}
 .st{width:100%;padding:1.6vh 0;font-size:8.5vh;font-weight:800;transition:background .4s}
 .pulse{animation:pulse .9s ease-out}
@@ -40,9 +40,6 @@ body.ctl #ctl{display:block}
 .row button:focus-visible{outline:3px solid #fff}
 .chip{height:64px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--ink);text-align:center;padding:0 8px}
 .lab{max-width:520px;margin:14px 0 4px;color:#aab;font-size:14px}
-.links{display:flex;flex-wrap:wrap;gap:8px;max-width:520px;margin-top:12px}
-.links a{padding:8px 12px;border-radius:8px;background:#2a2e34;color:#eee;text-decoration:none;font-size:14px;font-weight:600}
-.links a.active{background:#f3dc1a;color:#111}
 #ctl .back{margin-top:18px;height:44px;padding:0 18px;border:1px solid #556;border-radius:10px;background:transparent;color:#ddd;font-size:15px;cursor:pointer}
 @media (prefers-reduced-motion:reduce){.pulse{animation:none}.card,.st,.rohs-badge{transition:none}}
 </style>
@@ -65,10 +62,8 @@ body.ctl #ctl{display:block}
 </div>
 
 <div id="ctl">
-  <h1 id="ctlTitle">ควบคุมป้าย Status Machine</h1>
+  <h1>ควบคุมป้าย Status Machine</h1>
   <p>กดลูกศรเพื่อเปลี่ยนสถานะ จอแสดงผลจะเปลี่ยนตามทันที</p>
-  <div class="lab">เลือกไลน์ (SMT 1 - SMT 12)</div>
-  <div class="links" id="lineLinks"></div>
   <div class="lab">โมเดล</div><div class="row"><button data-k="m" data-d="-1" aria-label="โมเดลก่อนหน้า">◀</button><div class="chip" id="km"></div><button data-k="m" data-d="1" aria-label="โมเดลถัดไป">▶</button></div>
   <div class="lab">แผนการผลิต</div><div class="row"><button data-k="p" data-d="-1" aria-label="แผนก่อนหน้า">◀</button><div class="chip" id="kp"></div><button data-k="p" data-d="1" aria-label="แผนถัดไป">▶</button></div>
   <div class="lab">สถานะ RoHS</div><div class="row"><button data-k="r" data-d="-1" aria-label="RoHS ก่อนหน้า">◀</button><div class="chip" id="kr"></div><button data-k="r" data-d="1" aria-label="RoHS ถัดไป">▶</button></div>
@@ -77,6 +72,15 @@ body.ctl #ctl{display:block}
 </div>
 
 <script>
+/*
+  วิธีใช้
+  - เปิดไฟล์นี้ใน Chrome บน Android box แล้วกด F11 หรือดับเบิลคลิกเพื่อเต็มจอ
+  - รีโมตกล่อง Android: ลูกศร ขึ้น/ลง เลือกช่อง ซ้าย/ขวา เปลี่ยนสถานะ
+  - ปุ่ม C สลับไปหน้าควบคุม (หรือเปิดด้วย #control)
+  - ?line=SMT%206      เปลี่ยนชื่อไลน์
+  - ?demo=1            เล่นสลับสถานะอัตโนมัติ เพื่อทดสอบ
+  - ?src=http://IP     ซิงก์กับอุปกรณ์อื่นผ่าน HTTP (ต้องมีตัวรับ /state และ /set)
+*/
 const OPT = {
   m: [["Running","#9ad79a"],["Change model","#a9d6f2"],["New Model","#e9a3b8"]],
   p: [["On Plan","#7cc47c"],["Delay Plan","#f0dc1e"]],
@@ -87,24 +91,7 @@ const KEYS = ["m","p","r","s"];
 const qs = new URLSearchParams(location.search);
 const SRC = (qs.get("src") || "").replace(/\/$/, "");
 const LINE = qs.get("line") || "SMT 1";
-const STORE_KEY = "smt-status-" + LINE;
 const $ = id => document.getElementById(id);
-
-document.title = "Status Machine - " + LINE;
-$("ctlTitle").textContent = "ควบคุมป้าย Status Machine (" + LINE + ")";
-
-/* สร้างปุ่มลัดเปลี่ยนไลน์ SMT 1 - SMT 12 ในหน้าควบคุม */
-const linksWrap = $("lineLinks");
-for (let i = 1; i <= 12; i++) {
-  const name = "SMT " + i;
-  const a = document.createElement("a");
-  const p = new URLSearchParams(location.search);
-  p.set("line", name);
-  a.href = "?" + p.toString() + location.hash;
-  a.textContent = name;
-  if (name === LINE) a.className = "active";
-  linksWrap.appendChild(a);
-}
 
 function clean(o){
   const res = {};
@@ -115,11 +102,8 @@ function clean(o){
   return res;
 }
 let st = {m:2,p:0,r:0,s:0};
-try {
-  const saved = localStorage.getItem(STORE_KEY) || localStorage.getItem("smt-status");
-  if (saved) st = clean(JSON.parse(saved));
-} catch(e){}
-const bc = "BroadcastChannel" in window ? new BroadcastChannel(STORE_KEY) : null;
+try { st = clean(JSON.parse(localStorage.getItem("smt-status") || "{}")); } catch(e){}
+const bc = "BroadcastChannel" in window ? new BroadcastChannel("smt-status") : null;
 
 const targets = { m:["cm","vm","km"], p:["cp","vp","kp"], r:["vr","vr","kr"], s:["cs","vs","ks"] };
 function render(changed){
@@ -151,21 +135,21 @@ function render(changed){
 function apply(o){
   const n = clean(o), ch = KEYS.filter(k => n[k] !== st[k]);
   if (!ch.length) return;
-  st = n; localStorage.setItem(STORE_KEY, JSON.stringify(st)); render(ch);
+  st = n; localStorage.setItem("smt-status", JSON.stringify(st)); render(ch);
 }
 function setKey(k, v){
   st = Object.assign({}, st, {[k]: v});
-  localStorage.setItem(STORE_KEY, JSON.stringify(st));
+  localStorage.setItem("smt-status", JSON.stringify(st));
   render([k]);
   if (bc) bc.postMessage(st);
-  if (SRC) fetch(SRC + "/set?line=" + encodeURIComponent(LINE) + "&m=" + st.m + "&p=" + st.p + "&r=" + st.r + "&s=" + st.s, {mode:"no-cors"}).catch(() => {});
+  if (SRC) fetch(SRC + "/set?m=" + st.m + "&p=" + st.p + "&r=" + st.r + "&s=" + st.s, {mode:"no-cors"}).catch(() => {});
 }
 function step(k, d){ const n = OPT[k].length; setKey(k, (st[k] + d + n) % n); }
 
 if (bc) bc.onmessage = e => apply(e.data);
-addEventListener("storage", e => { if (e.key === STORE_KEY && e.newValue) apply(JSON.parse(e.newValue)); });
+addEventListener("storage", e => { if (e.key === "smt-status" && e.newValue) apply(JSON.parse(e.newValue)); });
 if (SRC) setInterval(() => {
-  fetch(SRC + "/state?line=" + encodeURIComponent(LINE), {cache:"no-store"}).then(r => r.json()).then(apply).catch(() => {});
+  fetch(SRC + "/state", {cache:"no-store"}).then(r => r.json()).then(apply).catch(() => {});
 }, 700);
 
 /* รีโมต/คีย์บอร์ด */
