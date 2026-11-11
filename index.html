@@ -3,26 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Status Machine - SMT 1</title>
+<title>Status Machine</title>
 <style>
-/* สีอ้างอิงจากป้ายจริงในไลน์: พื้นป้ายเขียว ป้ายหัวข้อเหลือง ป้ายสถานะแต่ละสี */
+/* จัดเรียงเหมือนป้ายจริงที่แขวนในไลน์: SMT n > RoHS > Status Machine > แผน | สถานะ */
 :root{--board:#0e5a2f;--label:#f3dc1a;--ink:#111}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
+body,button{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+button{touch-action:manipulation}
 body{background:var(--board);color:var(--ink);font-family:"Segoe UI",Roboto,"Noto Sans Thai",system-ui,sans-serif;overflow:hidden}
 
-/* ---------- หน้าจอแสดงผล (เต็มจอ ใช้หน่วย vh/vw จึงพอดีทุกขนาดจอ) ---------- */
-#disp{height:100vh;padding:2.2vh 2vw;display:grid;grid-template-rows:19fr 29fr 46fr;gap:2.2vh;cursor:none}
+/* ---------- หน้าจอแสดงผล (ใช้หน่วย vh/vw จึงพอดีทุกขนาดจอ) ---------- */
+#disp{height:100vh;padding:2.2vh 2vw;display:flex;flex-direction:column;gap:2.2vh;cursor:none}
+#disp>*{min-height:0}
 .card{border-radius:1.4vh;border:.4vh solid rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;text-align:center;transition:background .4s}
-.hd{background:var(--label);font-size:10.5vh;font-weight:700}
-.mid{display:grid;grid-template-columns:1fr 1fr;gap:2vw}
-.val{font-size:9vh;font-weight:800;line-height:1.05;padding:0 1vw}
-.bot{flex-direction:column;background:#101010;border-color:#000;overflow:hidden;justify-content:stretch}
-.line-wrap{flex:1;display:flex;align-items:center;justify-content:center;gap:2.5vw;padding:0 2vw}
-.line{color:#fff;font-size:22vh;font-weight:800;line-height:1}
-.rohs-badge{padding:1vh 2.4vw;border-radius:1.2vh;border:.4vh solid #fff;font-size:10vh;font-weight:800;line-height:1.1;letter-spacing:.04em;transition:background .4s,color .4s}
-.rohs-badge.hide{display:none}
-.st{width:100%;padding:1.6vh 0;font-size:8.5vh;font-weight:800;transition:background .4s}
+.sign{flex:22;background:#fff;border:.9vh solid #1d44a8;color:#1d44a8;font-size:17vh;font-weight:800;line-height:1}
+.rohs{flex:14;background:#11823a;border:.9vh solid #fff;color:#fff;font-size:10vh;font-weight:800;line-height:1;letter-spacing:.03em}
+.hd{flex:12;background:var(--label);font-size:7.5vh;font-weight:700}
+.mid{flex:42;display:grid;grid-template-columns:1fr 1fr;gap:2vw}
+.val{font-size:9.5vh;font-weight:800;line-height:1.05;padding:0 1vw}
 .pulse{animation:pulse .9s ease-out}
 @keyframes pulse{0%{transform:scale(1)}25%{transform:scale(1.035);filter:brightness(1.15)}100%{transform:scale(1)}}
 .sel{outline:.9vh dashed #fff;outline-offset:.5vh}
@@ -41,32 +40,25 @@ body.ctl #ctl{display:block}
 .chip{height:64px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--ink);text-align:center;padding:0 8px}
 .lab{max-width:520px;margin:14px 0 4px;color:#aab;font-size:14px}
 #ctl .back{margin-top:18px;height:44px;padding:0 18px;border:1px solid #556;border-radius:10px;background:transparent;color:#ddd;font-size:15px;cursor:pointer}
-@media (prefers-reduced-motion:reduce){.pulse{animation:none}.card,.st,.rohs-badge{transition:none}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}.card{transition:none}}
 </style>
 </head>
 <body>
 
 <div id="disp">
+  <div class="card sign"><span id="vl"></span></div>
+  <div class="card rohs" id="vr">RoHS</div>
   <div class="card hd">Status Machine</div>
   <div class="mid">
-    <div class="card" id="cm"><span class="val" id="vm"></span></div>
     <div class="card" id="cp"><span class="val" id="vp"></span></div>
-  </div>
-  <div class="card bot" id="cs">
-    <div class="line-wrap">
-      <div class="line" id="vl"></div>
-      <div class="rohs-badge" id="vr">RoHS</div>
-    </div>
-    <div class="st" id="vs"></div>
+    <div class="card" id="cs"><span class="val" id="vs"></span></div>
   </div>
 </div>
 
 <div id="ctl">
   <h1>ควบคุมป้าย Status Machine</h1>
   <p>กดลูกศรเพื่อเปลี่ยนสถานะ จอแสดงผลจะเปลี่ยนตามทันที</p>
-  <div class="lab">โมเดล</div><div class="row"><button data-k="m" data-d="-1" aria-label="โมเดลก่อนหน้า">◀</button><div class="chip" id="km"></div><button data-k="m" data-d="1" aria-label="โมเดลถัดไป">▶</button></div>
   <div class="lab">แผนการผลิต</div><div class="row"><button data-k="p" data-d="-1" aria-label="แผนก่อนหน้า">◀</button><div class="chip" id="kp"></div><button data-k="p" data-d="1" aria-label="แผนถัดไป">▶</button></div>
-  <div class="lab">สถานะ RoHS</div><div class="row"><button data-k="r" data-d="-1" aria-label="RoHS ก่อนหน้า">◀</button><div class="chip" id="kr"></div><button data-k="r" data-d="1" aria-label="RoHS ถัดไป">▶</button></div>
   <div class="lab">สถานะเครื่อง</div><div class="row"><button data-k="s" data-d="-1" aria-label="สถานะก่อนหน้า">◀</button><div class="chip" id="ks"></div><button data-k="s" data-d="1" aria-label="สถานะถัดไป">▶</button></div>
   <button class="back" id="toDisp">ดูหน้าจอแสดงผล</button>
 </div>
@@ -77,56 +69,49 @@ body.ctl #ctl{display:block}
   - เปิดไฟล์นี้ใน Chrome บน Android box แล้วกด F11 หรือดับเบิลคลิกเพื่อเต็มจอ
   - รีโมตกล่อง Android: ลูกศร ขึ้น/ลง เลือกช่อง ซ้าย/ขวา เปลี่ยนสถานะ
   - ปุ่ม C สลับไปหน้าควบคุม (หรือเปิดด้วย #control)
-  - ?line=SMT%206      เปลี่ยนชื่อไลน์
+  - ?line=SMT%202      เปลี่ยนชื่อไลน์
+  - ?rohs=0            ซ่อนป้าย RoHS (ค่าปกติแสดงอยู่)
   - ?demo=1            เล่นสลับสถานะอัตโนมัติ เพื่อทดสอบ
-  - ?src=http://IP     ซิงก์กับอุปกรณ์อื่นผ่าน HTTP (ต้องมีตัวรับ /state และ /set)
+  - ?src=http://IP     ซิงก์กับอุปกรณ์อื่นผ่าน HTTP (ต้องมีตัวรับ /state และ /set) ดูท้ายไฟล์
 */
+// ซ้าย = แผน, ขวา = สถานะ
+// เพิ่ม/ลด/สลับลำดับตัวเลือกได้ที่นี่ รูปแบบ ["ข้อความ","สีพื้น","สีตัวอักษร (ไม่ใส่ = ดำ)"]
+// ลำดับในรายการคือลำดับที่กดลูกศรเลื่อนไป ตัวแรกคือค่าเริ่มต้น
 const OPT = {
-  m: [["Running","#9ad79a"],["Change model","#a9d6f2"],["New Model","#e9a3b8"]],
-  p: [["On Plan","#7cc47c"],["Delay Plan","#f0dc1e"]],
-  r: [["RoHS","#157a3c","#ffffff"],["Non-RoHS","#c62828","#ffffff"],["ซ่อน (ไม่แสดง)","#444444","#ffffff"]],
-  s: [["Production","#9ad79a"],["Maintenance","#f0dc1e"]]
+  p: [["On Plan","#7cc47c"],["Advance Plan","#6fd6c8"],["Delay Plan","#f0dc1e"],["No Plan","#c9c9c9"]],
+  s: [["Production","#9ad79a"],["Change model","#a9d6f2"],["New Model","#e9a3b8"],["Maintenance","#f0dc1e"],["Stop line","#d62f2f","#fff"]]
 };
-const KEYS = ["m","p","r","s"];
+const KEYS = ["p","s"];
 const qs = new URLSearchParams(location.search);
 const SRC = (qs.get("src") || "").replace(/\/$/, "");
 const LINE = qs.get("line") || "SMT 1";
 const $ = id => document.getElementById(id);
+if (qs.get("rohs") === "0") $("vr").style.display = "none";
 
 function clean(o){
-  const res = {};
+  const r = {};
   KEYS.forEach(k => {
     const v = parseInt(o && o[k], 10);
-    res[k] = (v >= 0 && v < OPT[k].length) ? v : 0;
+    r[k] = (v >= 0 && v < OPT[k].length) ? v : 0;
   });
-  return res;
+  return r;
 }
-let st = {m:2,p:0,r:0,s:0};
+let st = {p:0,s:0};
 try { st = clean(JSON.parse(localStorage.getItem("smt-status") || "{}")); } catch(e){}
 const bc = "BroadcastChannel" in window ? new BroadcastChannel("smt-status") : null;
 
-const targets = { m:["cm","vm","km"], p:["cp","vp","kp"], r:["vr","vr","kr"], s:["cs","vs","ks"] };
+const targets = { p:["cp","vp","kp"], s:["cs","vs","ks"] };
 function render(changed){
   $("vl").textContent = LINE;
   KEYS.forEach(k => {
-    const [name, bg, fg] = OPT[k][st[k]];
+    const [name, color, fg] = OPT[k][st[k]];
     const [card, val, chip] = targets[k];
     $(val).textContent = name;
     $(chip).textContent = name;
-    $(chip).style.background = bg;
-    $(chip).style.color = fg || "#111";
-
-    if (k === "r") {
-      const badge = $("vr");
-      badge.classList.toggle("hide", st.r === 2);
-      badge.style.background = bg;
-      badge.style.color = fg || "#fff";
-    } else if (k === "s") {
-      $("vs").style.background = bg;
-    } else {
-      $(card).style.background = bg;
-    }
-
+    $(chip).style.background = color;
+    $(card).style.background = color;
+    $(val).style.color = fg || "";
+    $(chip).style.color = fg || "";
     if (changed && changed.includes(k)) {
       const el = $(card); el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
     }
@@ -142,7 +127,7 @@ function setKey(k, v){
   localStorage.setItem("smt-status", JSON.stringify(st));
   render([k]);
   if (bc) bc.postMessage(st);
-  if (SRC) fetch(SRC + "/set?m=" + st.m + "&p=" + st.p + "&r=" + st.r + "&s=" + st.s, {mode:"no-cors"}).catch(() => {});
+  if (SRC) fetch(SRC + "/set?p=" + st.p + "&s=" + st.s, {mode:"no-cors"}).catch(() => {});
 }
 function step(k, d){ const n = OPT[k].length; setKey(k, (st[k] + d + n) % n); }
 
@@ -153,24 +138,35 @@ if (SRC) setInterval(() => {
 }, 700);
 
 /* รีโมต/คีย์บอร์ด */
-let selIdx = 0, selTimer;
-const selCards = ["cm","cp","vr","cs"];
+// กันกดซ้ำ: ไม่รับการกดค้าง (repeat) และเว้นช่วงระหว่างการกด
+let lastAct = 0;
+function allowed(ms){ const t = Date.now(); if (t - lastAct < ms) return false; lastAct = t; return true; }
+// กดครั้งแรกหลังเงียบไปสักพักจะแค่ปลุกกรอบเลือกให้เห็น ยังไม่เปลี่ยนค่า กันกดผิดช่อง
+let selIdx = 0, selActive = false, selTimer;
+const SELS = ["cp","cs"];
 function showSel(){
-  selCards.forEach((id,i) => $(id).classList.toggle("sel", i === selIdx));
+  selActive = true;
+  SELS.forEach((id,i) => $(id).classList.toggle("sel", i === selIdx));
   clearTimeout(selTimer);
-  selTimer = setTimeout(() => selCards.forEach(id => $(id).classList.remove("sel")), 3000);
+  selTimer = setTimeout(() => { selActive = false; SELS.forEach(id => $(id).classList.remove("sel")); }, 4000);
 }
+// ปุ่มลูกศรของรีโมต (บางรุ่นส่งเป็น keyCode)
+const KEYMAP = {ArrowUp:"u",ArrowDown:"d",ArrowLeft:"l",ArrowRight:"r",38:"u",40:"d",37:"l",39:"r"};
 addEventListener("keydown", e => {
-  if (e.key === "ArrowUp")   { selIdx = (selIdx + selCards.length - 1) % selCards.length; showSel(); }
-  else if (e.key === "ArrowDown") { selIdx = (selIdx + 1) % selCards.length; showSel(); }
-  else if (e.key === "ArrowLeft")  { step(KEYS[selIdx], -1); showSel(); }
-  else if (e.key === "ArrowRight") { step(KEYS[selIdx], 1);  showSel(); }
-  else if (e.key === "c" || e.key === "C") { document.body.classList.toggle("ctl"); }
-  else return;
-  e.preventDefault();
-});
+  const a = KEYMAP[e.key] || KEYMAP[e.keyCode];
+  if (a) {
+    e.preventDefault();
+    if (e.repeat || !allowed(250)) return;
+    if (!selActive) { showSel(); return; }
+    if (a === "u" || a === "d") selIdx = (selIdx + 1) % 2;
+    else step(KEYS[selIdx], a === "l" ? -1 : 1);
+    showSel();
+  } else if (e.key === "c" || e.key === "C") {
+    document.body.classList.toggle("ctl");
+  }
+}, true);
 document.querySelectorAll("#ctl .row button").forEach(b =>
-  b.addEventListener("click", () => step(b.dataset.k, parseInt(b.dataset.d, 10))));
+  b.addEventListener("click", () => { if (allowed(150)) step(b.dataset.k, parseInt(b.dataset.d, 10)); }));
 $("toDisp").addEventListener("click", () => document.body.classList.remove("ctl"));
 $("disp").addEventListener("dblclick", () => {
   if (document.fullscreenElement) document.exitFullscreen();
@@ -179,11 +175,21 @@ $("disp").addEventListener("dblclick", () => {
 if (location.hash === "#control") document.body.classList.add("ctl");
 
 if (qs.get("demo")) {
-  const seq = [["m",1],["p",1],["r",1],["s",1],["m",1],["p",1],["s",1]];
+  const seq = [["s",1],["p",1],["s",1],["s",1],["p",1],["s",1]];
   let i = 0;
   setInterval(() => { const [k,d] = seq[i++ % seq.length]; step(k, d); }, 3000);
 }
+document.body.tabIndex = -1; document.body.focus(); // ให้หน้าเว็บรับปุ่มรีโมตตั้งแต่เปิด
+addEventListener("click", () => window.focus());
 render();
+
+/*
+  ซิงก์ข้ามอุปกรณ์ (ไม่บังคับ): ถ้าเปิดด้วย ?src=http://192.168.4.1
+  ตัวรับต้องตอบ GET /state เป็น JSON เช่น {"p":0,"s":3}
+  และรับ GET /set?p=0&s=3 พร้อมส่ง header Access-Control-Allow-Origin: *
+  p: 0 On Plan, 1 Advance Plan, 2 Delay Plan, 3 No Plan
+  s: 0 Production, 1 Change model, 2 New Model, 3 Maintenance, 4 Stop line
+*/
 </script>
 </body>
 </html>
