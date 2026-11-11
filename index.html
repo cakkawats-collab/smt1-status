@@ -131,6 +131,15 @@ body.p2 #logp{display:flex}
 .lp-period{font-size:2.1vh;font-weight:600;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .lp-period b{font-weight:800}
 .lp-now{display:flex;align-items:center;gap:1.2vw}
+.lp-cs{display:flex;flex-direction:column;align-items:flex-start;line-height:1.15}
+.sync{font-size:1.8vh;font-weight:700;white-space:nowrap}
+.sync:empty{display:none}
+.sync::before{content:"";display:inline-block;width:1.2vh;height:1.2vh;border-radius:50%;margin-right:.4vw;background:currentColor;vertical-align:.05em}
+body[data-sync=ok] .sync{color:#0d6b33}
+body[data-sync=off] .sync,body[data-sync=wait] .sync{color:#b45309}
+/* ไฟ LIVE: เขียว = ซิงก์อยู่ / ส้ม = ยังไม่เชื่อมต่อ (ยังทำงานและเก็บในเครื่องตามปกติ) */
+body[data-sync=off] .hd>.live,body[data-sync=off] .hd>.live::after,
+body[data-sync=wait] .hd>.live,body[data-sync=wait] .hd>.live::after{background:#f59e0b}
 .nowchip{display:flex;align-items:center;gap:.6vw;padding:.7vh 1.2vw;border-radius:99vh;border:.3vh solid rgba(0,0,0,.35);
   font-size:2.6vh;font-weight:800;white-space:nowrap;transition:background-color .4s,color .4s}
 .nowchip .ic{width:2.8vh;height:2.8vh}
@@ -294,7 +303,7 @@ body.ctl #ctl{display:block}
   <header class="lp-hd">
     <div class="lp-title" id="lpTitle"></div>
     <div class="lp-period" id="lpPeriod"></div>
-    <div class="lp-now"><span class="nowchip" id="lpNow"></span><span class="lp-clock" id="lpClk"></span></div>
+    <div class="lp-now"><span class="nowchip" id="lpNow"></span><span class="lp-cs"><span class="lp-clock" id="lpClk"></span><span class="sync" id="syncTxt"></span></span></div>
     <button class="pbtn xl" id="exportXl"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>Excel</button>
     <button class="pbtn" id="toSign"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>หน้าป้าย</button>
   </header>
@@ -322,7 +331,7 @@ body.ctl #ctl{display:block}
   <p>กดลูกศรเพื่อเปลี่ยนสถานะ จอแสดงผลจะเปลี่ยนตามทันที</p>
   <div class="lab">แผนการผลิต</div><div class="row"><button data-k="p" data-d="-1" aria-label="แผนก่อนหน้า">◀</button><div class="chip" id="kp"></div><button data-k="p" data-d="1" aria-label="แผนถัดไป">▶</button></div>
   <div class="lab">สถานะเครื่อง</div><div class="row"><button data-k="s" data-d="-1" aria-label="สถานะก่อนหน้า">◀</button><div class="chip" id="ks"></div><button data-k="s" data-d="1" aria-label="สถานะถัดไป">▶</button></div>
-  <button class="back" id="toDisp">ดูหน้าป้าย</button><button class="back" id="toDisp2">ดูหน้าบันทึกสถานะ</button><button class="back" id="exportXl2">ส่งออก Excel</button><button class="back warn" id="clearLog">ล้างบันทึกและเริ่มรอบใหม่</button>
+  <button class="back" id="toDisp">ดูหน้าป้าย</button><button class="back" id="toDisp2">ดูหน้าบันทึกสถานะ</button><button class="back" id="exportXl2">ส่งออก Excel 7 วัน</button><button class="back" id="exportXl30">ส่งออก Excel 30 วัน</button><button class="back warn" id="clearLog">ล้างบันทึกและเริ่มรอบใหม่</button>
 </div>
 
 <script>
@@ -332,7 +341,7 @@ body.ctl #ctl{display:block}
   - รีโมตกล่อง Android: ลูกศร ขึ้น/ลง เลือกช่อง ซ้าย/ขวา เปลี่ยนสถานะ
   - ปุ่ม OK (Enter) หรือปุ่ม L สลับหน้าป้าย <-> หน้าบันทึกสถานะ (หรือกดปุ่มบนจอ)
   - หน้าบันทึก: ลูกศร ขึ้น/ลง เลือกวัน ซ้าย/ขวา เปลี่ยนหน้ารายการ OK เปิดเมนู
-    (กลับหน้าป้าย / ส่งออก Excel เฉพาะวันที่เลือก หรือทั้งรอบ 7 วัน / แสดง Production)
+    (กลับหน้าป้าย / ส่งออก Excel เฉพาะวันที่เลือก, รอบ 7 วัน หรือ 30 วันล่าสุด / แสดง Production)
   - ส่งออก Excel ได้จากเมนูหน้าบันทึก หรือหน้าควบคุม ไฟล์ .xlsx สร้างในเครื่อง ไม่ต้องต่อเน็ต
     มี 4 ชีต: สรุป / รายวัน / หยุดไลน์รายชั่วโมง / เหตุการณ์
   - เปลี่ยนสถานะแล้วอยู่ไม่ถึง 5 วินาที (กดเลื่อนผ่าน) จะไม่ถูกนับ แก้ได้ที่ IGNORE_SEC
@@ -343,8 +352,9 @@ body.ctl #ctl{display:block}
   - ?timer=0           ซ่อนระยะเวลาที่อยู่ในสถานะปัจจุบัน
   - ?back=120          หน้าบันทึกกลับไปหน้าป้ายเองเมื่อไม่มีใครกดอะไร (วินาที, 0 = ไม่กลับเอง)
   - ?demo=1            เล่นสลับสถานะอัตโนมัติ เพื่อทดสอบ
+  - เปิดผ่าน smt_server.py ในบริษัท = ทุกเครื่องที่เปิดไลน์เดียวกันซิงก์กันอัตโนมัติ
   - ?src=http://IP     ซิงก์กับอุปกรณ์อื่นผ่าน HTTP (ต้องมีตัวรับ /state และ /set) ดูท้ายไฟล์
-  บันทึกสถานะเก็บในเครื่องนี้ เป็นรอบละ 7 วัน ครบรอบแล้วล้างเองตอนเที่ยงคืนและเริ่มรอบใหม่
+  หน้าบันทึกแสดงรอบละ 7 วัน (ครบแล้วขึ้นรอบใหม่ตอนเที่ยงคืน) แต่เก็บประวัติย้อนหลัง 30 วัน (KEEP_DAYS) ไว้ส่งออก Excel เก่ากว่านั้นลบเอง
 */
 // ซ้าย = แผน, ขวา = สถานะ
 // เพิ่ม/ลด/สลับลำดับตัวเลือกได้ที่นี่ รูปแบบ ["ข้อความ","สีพื้น","สีตัวอักษร (เว้นว่าง = ดำ)","ไอคอน/เอฟเฟกต์"]
@@ -356,7 +366,13 @@ const OPT = {
 };
 // สถานะที่ไม่ต้องขึ้นในการ์ดสรุปและรายการเหตุการณ์ (ยังแสดงบนไทม์ไลน์) ใส่เป็นลำดับใน OPT.s เช่น 0 = Production
 const LOG_SKIP = [0];
-const PERIOD_DAYS = 7;   // ล้างบันทึกทุกกี่วัน
+// ---------- ซิงก์หลายเครื่อง ----------
+// เปิดหน้านี้ผ่าน smt_server.py (เซิร์ฟเวอร์ในบริษัท) จะซิงก์ให้เองอัตโนมัติ ไม่ต้องตั้งค่าอะไร
+// เปิดจากที่อื่น (GitHub, ไฟล์ในเครื่อง) = เก็บในเครื่องอย่างเดียว
+// หรือกำหนดเองได้ที่ DB_URL / ?db=  (รองรับ Firebase Realtime Database ด้วย)
+const DB_URL = "";
+const PERIOD_DAYS = 7;   // หน้าบันทึกแสดงรอบละกี่วัน (ครบแล้วขึ้นรอบใหม่ตอนเที่ยงคืน)
+const KEEP_DAYS = 30;    // เก็บประวัติย้อนหลังกี่วัน (ไว้ส่งออก Excel) เก่ากว่านี้ลบเองตอนเที่ยงคืน
 const IGNORE_SEC = 5;    // สถานะที่อยู่สั้นกว่านี้ (วินาที) ไม่นับ เช่น ตอนกดรีโมตเลื่อนผ่าน
 const IC = {
   ok:'<circle cx="12" cy="12" r="10"/><path d="M7 12.5l3.2 3.2L17 9"/>',
@@ -398,6 +414,75 @@ try {
   if (localStorage.getItem("smt:SMT 1:status") !== null)
     ["status","since","log","period"].forEach(k => localStorage.removeItem("smt-" + k));
 } catch(e){}
+/* ---------- ซิงก์กับเซิร์ฟเวอร์ (smt_server.py หรือ Firebase): อ่าน/เขียนผ่าน REST และรับการเปลี่ยนแปลงทันทีผ่าน EventSource ----------
+   โครงสร้าง: /lines/<ชื่อไลน์>/ { st:{p,s}, since, period, log:{ "<เวลาเริ่ม ms>": ลำดับสถานะ } }
+   ถ้าเน็ตหลุด ป้ายยังทำงานและเก็บในเครื่อง พอต่อได้จะส่งที่ค้างไว้ขึ้นไปรวมให้เอง */
+const remote = (() => {
+  const base = (qs.get("db") || window.SMT_DB || DB_URL || "").trim().replace(/\/+$/, "");
+  const off = {on:false, patch(){}, addLog(){}, putLog(){}, patchLog(){}, connect(){}};
+  if (!/^https?:\/\//.test(base)) return off;
+  const url = base + "/lines/" + encodeURIComponent(LINE_ID.replace(/[.#$\[\]\/]/g, "_"));
+  let ready = false, online = false, dirty = false, refT;
+  const logMap = arr => { const m = {}; arr.forEach(e => m[String(e.t)] = e.s); return m; };
+  function state(s){ online = s === "ok"; document.body.dataset.sync = s; syncText(); }
+  function send(method, sub, val){
+    if (!ready || !online) { dirty = true; return; }
+    fetch(url + sub + ".json", {method, body: JSON.stringify(val)})
+      .then(r => { if (!r.ok) throw new Error(r.status); })
+      .catch(() => { dirty = true; state("off"); });
+  }
+  function full(doc){
+    if (!ready) {                                   // ครั้งแรกที่ต่อได้
+      ready = true; dirty = false;
+      if (!doc || !doc.st) send("PUT", "", {st, since, period: pStart, log: logMap(loadLog())});   // ยังไม่มีข้อมูลบนเซิร์ฟเวอร์: ส่งของเครื่องนี้ขึ้นไป
+      else adopt(doc);
+      return;
+    }
+    if (dirty) {                                    // กลับมาออนไลน์: รวมที่ค้างไว้ขึ้นไป
+      dirty = false;
+      send("PATCH", "/log", logMap(loadLog()));
+      if (!doc || !doc.st || (+doc.since || 0) < since) send("PATCH", "", {st, since}); else adopt(doc);
+      return;
+    }
+    adopt(doc || {});
+  }
+  function refetch(){
+    clearTimeout(refT);
+    refT = setTimeout(() => fetch(url + ".json", {cache:"no-store"}).then(r => r.json()).then(full).catch(() => state("off")), 150);
+  }
+  function connect(){
+    state("wait");
+    if (!("EventSource" in window)) { state("ok"); refetch(); setInterval(refetch, 3000); return; }
+    const es = new EventSource(url + ".json");
+    es.onopen = () => state("ok");
+    es.onerror = () => state("off");                // EventSource ต่อใหม่ให้เอง
+    es.addEventListener("put", e => { try { const m = JSON.parse(e.data); if (m.path === "/") full(m.data); else refetch(); } catch(x){} });
+    es.addEventListener("patch", refetch);
+    es.addEventListener("cancel", () => state("off"));
+  }
+  return {on:true, connect,
+    patch: o => send("PATCH", "", o),
+    addLog: (t, s) => send("PATCH", "/log", {[String(t)]: s}),
+    putLog: arr => send("PUT", "/log", logMap(arr)),
+    patchLog: o => send("PATCH", "/log", o)};
+})();
+// รับข้อมูลจากเซิร์ฟเวอร์มาแทนของในเครื่อง
+function adopt(doc){
+  const arr = Object.keys(doc.log || {}).map(t => ({t: +t, s: +doc.log[t]})).filter(e => e.t > 0).sort((p, q) => p.t - q.t);
+  try { localStorage.setItem(K.log, JSON.stringify(arr)); if (doc.period) localStorage.setItem(K.period, doc.period); } catch(e){}
+  if (doc.period) pStart = +doc.period;
+  const rs = +doc.since || since;
+  if (doc.st) {
+    const n = clean(doc.st), ch = KEYS.filter(k => n[k] !== st[k]);
+    if (ch.length) commit(n, ch, rs);
+    else if (rs !== since) { since = rs; try { localStorage.setItem(K.since, since); } catch(e){} tick(); }
+  }
+  checkPeriod(); renderLog(false);
+}
+function syncText(){
+  const t = $("syncTxt"), s = document.body.dataset.sync;
+  t.textContent = !remote.on ? "" : s === "ok" ? "ซิงก์ออนไลน์" : s === "wait" ? "กำลังเชื่อมต่อ…" : "ออฟไลน์ (เก็บในเครื่องไว้ก่อน)";
+}
 let st = {p:0,s:0};
 try { st = clean(JSON.parse(localStorage.getItem(K.status) || "{}")); } catch(e){}
 let since = Date.now();
@@ -459,9 +544,10 @@ function saveLog(a){ try { localStorage.setItem(K.log, JSON.stringify(a)); } cat
 function logStatus(s, t){
   const a = loadLog();
   if (a.length && a[a.length - 1].s === s) return;
-  a.push({s, t: Math.max(t, pStart)}); saveLog(a);
+  const tt = Math.max(t, pStart);
+  a.push({s, t: tt}); saveLog(a); remote.addLog(tt, s);
 }
-// ตรวจรอบ 7 วัน: ครบรอบเมื่อไรล้างข้อมูลและเริ่มรอบใหม่ (ยกสถานะปัจจุบันข้ามไปด้วย)
+// ตรวจรอบ 7 วัน: ครบรอบเมื่อไรหน้าบันทึกขึ้นรอบใหม่ (ประวัติไม่ถูกลบ) ส่วนข้อมูลเก่ากว่า KEEP_DAYS วันจะถูกตัดทิ้ง
 let pStart = 0;
 function checkPeriod(){
   const today = midnight(Date.now());
@@ -469,14 +555,23 @@ function checkPeriod(){
   if (!ps || ps > today) { const a = loadLog(); ps = a.length ? Math.max(midnight(a[0].t), addDays(today, 1 - PERIOD_DAYS)) : today; }
   let reset = false;
   while (today >= addDays(ps, PERIOD_DAYS)) { ps = addDays(ps, PERIOD_DAYS); reset = true; }
-  if (reset) {
-    let cur = null; const keep = [];
-    loadLog().forEach(e => { if (e.t < ps) cur = e.s; else keep.push(e); });
-    if (cur !== null && (!keep.length || keep[0].t > ps)) keep.unshift({s:cur, t:ps});
-    saveLog(keep);
-  }
-  if (ps !== pStart) { pStart = ps; try { localStorage.setItem(K.period, ps); } catch(e){} }
+  if (ps !== pStart) { pStart = ps; try { localStorage.setItem(K.period, ps); } catch(e){} remote.patch({period: ps}); }
+  trimOld();
   return reset;
+}
+// ตัดประวัติที่เก่ากว่า KEEP_DAYS วัน (ยกสถานะที่ค้างอยู่ ณ ตอนนั้นมาเป็นจุดเริ่มต้น) ลบทีละ key จึงไม่ชนกับเครื่องอื่นที่กำลังบันทึก
+function trimOld(){
+  const cut = addDays(midnight(Date.now()), 1 - KEEP_DAYS), a = loadLog();
+  if (!a.length || a[0].t >= cut) return;
+  let cur = null; const keep = [], patch = {};
+  a.forEach(e => { if (e.t < cut) { cur = e.s; patch[String(e.t)] = null; } else keep.push(e); });
+  if (cur !== null && (!keep.length || keep[0].t > cut)) { keep.unshift({s:cur, t:cut}); patch[String(cut)] = cur; }
+  saveLog(keep); remote.patchLog(patch);
+}
+// วันแรกของช่วง n วันล่าสุด (ไม่ก่อนวันที่เริ่มมีข้อมูล)
+function spanStart(n){
+  const d0 = midnight(Date.now()), a = loadLog();
+  return Math.max(addDays(d0, 1 - n), a.length ? midnight(a[0].t) : d0);
 }
 function dur(ms){
   const sec = Math.max(0, Math.floor(ms / 1000));
@@ -508,7 +603,7 @@ function renderLog(fresh){
   $("lpTitle").textContent = "บันทึกสถานะ " + LINE;
   const end = addDays(pStart, PERIOD_DAYS), left = Math.round((end - d0) / DAY);
   $("lpPeriod").innerHTML = 'รอบ <b>' + dm(pStart) + ' – ' + dm(addDays(pStart, PERIOD_DAYS - 1)) + '</b><br>' +
-    (left <= 1 ? 'ล้างข้อมูล <b>เที่ยงคืนนี้</b>' : 'ล้างข้อมูลในอีก <b>' + left + ' วัน</b>');
+    (left <= 1 ? 'ขึ้นรอบใหม่ <b>เที่ยงคืนนี้</b>' : 'ขึ้นรอบใหม่ในอีก <b>' + left + ' วัน</b>');
   const chip = $("lpNow");
   chip.style.backgroundColor = nc; chip.style.color = nf || "";
   chip.innerHTML = '<span class="ic">' + svg(nfx) + '</span>ตอนนี้: ' + nm;
@@ -711,13 +806,13 @@ const XL = (() => {
   return {styles, sheet, book, col};
 })();
 
-// day = เวลาเที่ยงคืนของวันที่จะส่งออก หรือ null = ทั้งรอบ
-function exportExcel(day){
+// day = เที่ยงคืนของวันที่จะส่งออก | span = จำนวนวันล่าสุด (เช่น 30) | ไม่ใส่ทั้งคู่ = รอบ 7 วันปัจจุบัน
+function exportExcel(day, span){
   checkPeriod();
   const now = Date.now(), d0 = midnight(now), C = XL.col;
-  const R0 = day || pStart, R1 = day ? Math.min(addDays(day, 1), now) : now;
+  const R0 = day || (span ? spanStart(span) : pStart), R1 = day ? Math.min(addDays(day, 1), now) : now, LO = span ? R0 : pStart;
   const a = loadLog();
-  const iv = a.map((e, i) => ({s:e.s, a:Math.max(e.t, pStart), b: i + 1 < a.length ? a[i + 1].t : now, live: i === a.length - 1}))
+  const iv = a.map((e, i) => ({s:e.s, a:Math.max(e.t, LO), b: i + 1 < a.length ? a[i + 1].t : now, live: i === a.length - 1}))
               .filter(x => x.b > x.a && x.b > R0 && x.a < R1);
   const clip = (x, A, B) => Math.max(0, Math.min(x.b, B) - Math.max(x.a, A));
   const ser = ts => (ts - new Date(ts).getTimezoneOffset() * 60000) / DAY + 25569;   // วันเวลาแบบ Excel
@@ -730,8 +825,11 @@ function exportExcel(day){
   const endStyle = (x, S) => midnight((x.live ? now : x.b) - 1) !== midnight(x.a) ? S.dt : S.time;
   const {xml: STY, S} = XL.styles();
   const days = [];
-  if (day) days.push(day); else for (let i = 0; i < PERIOD_DAYS; i++) { const A = addDays(pStart, i); if (A <= d0) days.push(A); }
-  const sub1 = (day ? "วันที่ " + dname(day) + " " + full(day) : "ช่วงข้อมูล " + full(pStart) + " – " + full(d0)) + "   (ข้อมูลถึง " + full(R1) + " " + hms(R1) + ")";
+  if (day) days.push(day);
+  else if (span) for (let A = midnight(R0); A <= d0; A = addDays(A, 1)) days.push(A);
+  else for (let i = 0; i < PERIOD_DAYS; i++) { const A = addDays(pStart, i); if (A <= d0) days.push(A); }
+  const many = days.length > 10;
+  const sub1 = (day ? "วันที่ " + dname(day) + " " + full(day) : (span ? "ช่วงข้อมูล " + days.length + " วัน " : "ช่วงข้อมูล ") + full(R0) + " – " + full(d0)) + "   (ข้อมูลถึง " + full(R1) + " " + hms(R1) + ")";
   const sub2 = "ส่งออกเมื่อ " + full(now) + " " + hms(now) + "   ไม่นับการเปลี่ยนสถานะที่สั้นกว่า " + IGNORE_SEC + " วินาที";
   const title = (rows, t, n) => { rows.push([[t + " " + LINE, S.title]]); rows.push([[sub1, S.sub]]); if (n) rows.push([[n, S.sub]]); else rows.push([[sub2, S.sub]]); rows.push(null); };
 
@@ -791,7 +889,7 @@ function exportExcel(day){
   const s3 = [], h3 = {1: 26};
   title(s3, "หยุดไลน์รายชั่วโมง (นาที)", "ตัวเลขคือจำนวนนาทีที่เป็นสถานะ Stop line ในแต่ละชั่วโมง  ช่องสีแดง = มีการหยุดไลน์");
   const hh = s3.length + 1;
-  s3.push([["ช่วงเวลา", S.hd], ...days.map(A => [dname(A) + " " + dm(A), S.hd]), ["รวม", S.hd]]); h3[hh] = 24;
+  s3.push([["ช่วงเวลา", S.hd], ...days.map(A => [dname(A) + (many ? "\n" : " ") + dm(A), S.hd]), ["รวม", S.hd]]); h3[hh] = many ? 34 : 24;
   const lastC = days.length + 1;
   for (let h = 0; h < 24; h++) {
     const r = s3.length + 1, row = [[pad(h) + ":00 – " + pad(h + 1 === 24 ? 0 : h + 1) + ":00", S.txtc]];
@@ -822,11 +920,11 @@ function exportExcel(day){
   const blob = XL.book([
     {name:"สรุป", xml: XL.sheet(s1, {widths:[18, 12, 18, 12, 12, 14, 12, 22], merges:m1, heights:h1, active:true, onePage:true})},
     {name:"รายวัน", xml: XL.sheet(s2, {widths:[13, 7, ...OPT.s.flatMap(() => [8, 15]), 15, 12], merges:m2, heights:h2, freeze:{r:hr + 1, c:2}, landscape:true})},
-    {name:"หยุดไลน์รายชั่วโมง", xml: XL.sheet(s3, {widths:[17, ...days.map(() => 12), 11], heights:h3, freeze:{r:hh, c:1}, landscape:days.length > 4, onePage:true})},
+    {name:"หยุดไลน์รายชั่วโมง", xml: XL.sheet(s3, {widths:[17, ...days.map(() => many ? 8.5 : 12), 11], heights:h3, freeze:{r:hh, c:1}, landscape:days.length > 4, onePage:true})},
     {name:"เหตุการณ์", filter:"A" + he + ":I" + l4, xml: XL.sheet(s4, {widths:[8, 12, 7, 16, 11, 20, 17, 12, 28], merges:m4, heights:h4,
       freeze:{r:he, c:0}, filter:"A" + he + ":I" + Math.max(l4, he), landscape:true})}
   ], STY);
-  const name = "StatusMachine_" + LINE.replace(/[^\w\-]+/g, "") + (day ? "_" + ymd(day) : "_7days_" + ymd(pStart) + "_to_" + ymd(addDays(pStart, PERIOD_DAYS - 1))) + ".xlsx";
+  const name = "StatusMachine_" + LINE.replace(/[^\w\-]+/g, "") + (day ? "_" + ymd(day) : span ? "_" + days.length + "days_" + ymd(R0) + "_to_" + ymd(d0) : "_7days_" + ymd(pStart) + "_to_" + ymd(addDays(pStart, PERIOD_DAYS - 1))) + ".xlsx";
   const url = URL.createObjectURL(blob), link = document.createElement("a");
   link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
@@ -836,6 +934,7 @@ function exportExcel(day){
 let toastT;
 function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 3500); }
 $("exportXl2").addEventListener("click", () => exportExcel(null));
+$("exportXl30").addEventListener("click", () => exportExcel(null, KEEP_DAYS));
 
 /* เมนูหน้าบันทึก: เลื่อนด้วย ▲▼ กด OK เลือก ◀ ปิด */
 let menuOpen = false, mIdx = 0, mItems = [];
@@ -851,6 +950,7 @@ function buildMenu(){
     {ic:"back", t:"กลับหน้าป้าย", run:() => { closeMenu(); showPage(1); }},
     {ic:"xl", cls:"xl", t:"ส่งออก Excel เฉพาะวันที่เลือก", sub:(selDay === d0 ? "วันนี้ " : "") + dayLabel(selDay), run:() => { closeMenu(); exportExcel(selDay); }},
     {ic:"xl", cls:"xl", t:"ส่งออก Excel ทั้งรอบ 7 วัน", sub:dm(pStart) + " – " + dm(addDays(pStart, PERIOD_DAYS - 1)), run:() => { closeMenu(); exportExcel(null); }},
+    {ic:"xl", cls:"xl", t:"ส่งออก Excel 30 วันล่าสุด", sub:dm(spanStart(KEEP_DAYS)) + " – " + dm(d0) + " (" + (Math.round((d0 - spanStart(KEEP_DAYS)) / DAY) + 1) + " วัน)", run:() => { closeMenu(); exportExcel(null, KEEP_DAYS); }},
     {ic:"list", t:"แสดง Production ในรายการ", sub:evAll ? "เปิดอยู่" : "ปิดอยู่", run:() => { evAll = !evAll; evPage = 0; renderLog(false); buildMenu(); }},
     {ic:"close", t:"ปิดเมนู", run:closeMenu}
   ];
@@ -863,21 +963,24 @@ $("mlist").addEventListener("click", e => { const b = e.target.closest(".mi"); i
 $("menu").addEventListener("click", e => { if (e.target.id === "menu") closeMenu(); });
 $("exportXl").addEventListener("click", () => openMenu(1));
 
-function commit(n, ch){
+// rs = เวลาเริ่มสถานะที่ได้มาจากที่อื่น (แท็บอื่น/เครื่องอื่น) ซึ่งบันทึกไว้แล้ว จึงไม่ต้องบันทึกหรือส่งซ้ำ
+function commit(n, ch, rs){
   st = n;
   if (ch.includes("s")) {
-    since = Date.now();
+    since = rs || Date.now();
     try { localStorage.setItem(K.since, since); } catch(e){}
-    checkPeriod(); logStatus(st.s, since);
+    if (!rs) { checkPeriod(); logStatus(st.s, since); }
   }
   try { localStorage.setItem(K.status, JSON.stringify(st)); } catch(e){}
   render(ch); tick();
-  if (ch.includes("s")) renderLog(true);
+  if (ch.includes("s")) renderLog(!rs);
+  if (!rs) remote.patch({st: st, since: since});
 }
-function apply(o){
+function apply(o, rs){
   const n = clean(o), ch = KEYS.filter(k => n[k] !== st[k]);
-  if (ch.length) commit(n, ch);
+  if (ch.length) commit(n, ch, rs);
 }
+const storedSince = () => parseInt(localStorage.getItem(K.since), 10) || Date.now();
 function setKey(k, v){
   commit(Object.assign({}, st, {[k]: v}), [k]);
   if (bc) bc.postMessage(st);
@@ -895,9 +998,9 @@ function tick(){
 }
 setInterval(() => { tick(); tickLog(); }, 1000);
 
-if (bc) bc.onmessage = e => apply(e.data);
+if (bc) bc.onmessage = e => apply(e.data, storedSince());
 addEventListener("storage", e => {
-  if (e.key === K.status && e.newValue) apply(JSON.parse(e.newValue));
+  if (e.key === K.status && e.newValue) apply(JSON.parse(e.newValue), storedSince());
   else if (e.key === K.log || e.key === K.period) { checkPeriod(); renderLog(false); }
 });
 if (SRC) setInterval(() => {
@@ -1008,9 +1111,9 @@ document.querySelectorAll("#ctl .row button").forEach(b =>
 $("toDisp").addEventListener("click", () => { document.body.classList.remove("ctl"); showPage(1); });
 $("toDisp2").addEventListener("click", () => { document.body.classList.remove("ctl"); showPage(2); });
 $("clearLog").addEventListener("click", () => {
-  if (!confirm("ล้างบันทึกสถานะทั้งหมดในเครื่องนี้ และเริ่มรอบ 7 วันใหม่ตั้งแต่วันนี้?")) return;
+  if (!confirm((remote.on ? "ล้างบันทึกสถานะของ " + LINE + " ทุกเครื่องที่ซิงก์อยู่" : "ล้างบันทึกสถานะทั้งหมดในเครื่องนี้") + " (รวมประวัติย้อนหลังทั้งหมด) และเริ่มรอบ 7 วันใหม่ตั้งแต่วันนี้?")) return;
   try { localStorage.removeItem(K.log); localStorage.setItem(K.period, midnight(Date.now())); } catch(e){}
-  pStart = 0; checkPeriod(); logStatus(st.s, Date.now()); renderLog(false);
+  pStart = 0; checkPeriod(); logStatus(st.s, Date.now()); remote.putLog(loadLog()); renderLog(false);
 });
 ["disp","logp"].forEach(id => $(id).addEventListener("dblclick", e => {
   if (e.target.closest("button")) return;
@@ -1039,6 +1142,7 @@ logStatus(st.s, since);
 render();
 tick();
 renderLog(false);
+remote.connect();
 if (location.hash === "#log") showPage(2);
 
 // ป้ายตกลงมาแขวนตอนเปิดจอ แล้วเอาคลาสออกเพื่อให้แอนิเมชันสถานะทำงานต่อ
