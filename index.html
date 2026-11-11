@@ -387,11 +387,22 @@ function clean(o){
   });
   return r;
 }
+// แยกข้อมูลของแต่ละไลน์: SMT 1, SMT 2, ... เปิดจากเว็บเดียวกันหรือเครื่องเดียวกันก็ไม่ปนกัน
+const LINE_ID = LINE.trim().replace(/\s+/g, " ").toUpperCase();
+const NS = "smt:" + LINE_ID + ":";
+const K = {status: NS + "status", since: NS + "since", log: NS + "log", period: NS + "period"};
+// ย้ายข้อมูลจากเวอร์ชันก่อน (ที่ทุกไลน์ใช้ร่วมกัน) ให้ SMT 1 ครั้งเดียว แล้วลบของเก่าทิ้ง
+try {
+  if (LINE_ID === "SMT 1" && localStorage.getItem("smt-status") !== null && localStorage.getItem(K.status) === null)
+    ["status","since","log","period"].forEach(k => { const v = localStorage.getItem("smt-" + k); if (v !== null) localStorage.setItem(K[k], v); });
+  if (localStorage.getItem("smt:SMT 1:status") !== null)
+    ["status","since","log","period"].forEach(k => localStorage.removeItem("smt-" + k));
+} catch(e){}
 let st = {p:0,s:0};
-try { st = clean(JSON.parse(localStorage.getItem("smt-status") || "{}")); } catch(e){}
+try { st = clean(JSON.parse(localStorage.getItem(K.status) || "{}")); } catch(e){}
 let since = Date.now();
-try { since = parseInt(localStorage.getItem("smt-since"), 10) || since; } catch(e){}
-const bc = "BroadcastChannel" in window ? new BroadcastChannel("smt-status") : null;
+try { since = parseInt(localStorage.getItem(K.since), 10) || since; } catch(e){}
+const bc = "BroadcastChannel" in window ? new BroadcastChannel(NS + "bc") : null;
 
 function retrigger(el, cls){ el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 const targets = { p:["cp","vp","kp","ip"], s:["cs","vs","ks","is"] };
@@ -429,7 +440,7 @@ function midnight(ts){ const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.
 function addDays(ts, n){ const d = new Date(ts); d.setDate(d.getDate() + n); return d.getTime(); }
 function loadLog(){
   try {
-    const a = JSON.parse(localStorage.getItem("smt-log") || "[]");
+    const a = JSON.parse(localStorage.getItem(K.log) || "[]");
     return Array.isArray(a) ? compact(a.filter(e => e && e.s >= 0 && e.s < OPT.s.length && e.t > 0)) : [];
   } catch(e){ return []; }
 }
@@ -444,7 +455,7 @@ function compact(a){
   });
   return out;
 }
-function saveLog(a){ try { localStorage.setItem("smt-log", JSON.stringify(a)); } catch(e){} }
+function saveLog(a){ try { localStorage.setItem(K.log, JSON.stringify(a)); } catch(e){} }
 function logStatus(s, t){
   const a = loadLog();
   if (a.length && a[a.length - 1].s === s) return;
@@ -454,7 +465,7 @@ function logStatus(s, t){
 let pStart = 0;
 function checkPeriod(){
   const today = midnight(Date.now());
-  let ps = parseInt(localStorage.getItem("smt-period"), 10);
+  let ps = parseInt(localStorage.getItem(K.period), 10);
   if (!ps || ps > today) { const a = loadLog(); ps = a.length ? Math.max(midnight(a[0].t), addDays(today, 1 - PERIOD_DAYS)) : today; }
   let reset = false;
   while (today >= addDays(ps, PERIOD_DAYS)) { ps = addDays(ps, PERIOD_DAYS); reset = true; }
@@ -464,7 +475,7 @@ function checkPeriod(){
     if (cur !== null && (!keep.length || keep[0].t > ps)) keep.unshift({s:cur, t:ps});
     saveLog(keep);
   }
-  if (ps !== pStart) { pStart = ps; try { localStorage.setItem("smt-period", ps); } catch(e){} }
+  if (ps !== pStart) { pStart = ps; try { localStorage.setItem(K.period, ps); } catch(e){} }
   return reset;
 }
 function dur(ms){
@@ -856,10 +867,10 @@ function commit(n, ch){
   st = n;
   if (ch.includes("s")) {
     since = Date.now();
-    try { localStorage.setItem("smt-since", since); } catch(e){}
+    try { localStorage.setItem(K.since, since); } catch(e){}
     checkPeriod(); logStatus(st.s, since);
   }
-  try { localStorage.setItem("smt-status", JSON.stringify(st)); } catch(e){}
+  try { localStorage.setItem(K.status, JSON.stringify(st)); } catch(e){}
   render(ch); tick();
   if (ch.includes("s")) renderLog(true);
 }
@@ -886,8 +897,8 @@ setInterval(() => { tick(); tickLog(); }, 1000);
 
 if (bc) bc.onmessage = e => apply(e.data);
 addEventListener("storage", e => {
-  if (e.key === "smt-status" && e.newValue) apply(JSON.parse(e.newValue));
-  else if (e.key === "smt-log" || e.key === "smt-period") { checkPeriod(); renderLog(false); }
+  if (e.key === K.status && e.newValue) apply(JSON.parse(e.newValue));
+  else if (e.key === K.log || e.key === K.period) { checkPeriod(); renderLog(false); }
 });
 if (SRC) setInterval(() => {
   fetch(SRC + "/state", {cache:"no-store"}).then(r => r.json()).then(apply).catch(() => {});
@@ -998,7 +1009,7 @@ $("toDisp").addEventListener("click", () => { document.body.classList.remove("ct
 $("toDisp2").addEventListener("click", () => { document.body.classList.remove("ctl"); showPage(2); });
 $("clearLog").addEventListener("click", () => {
   if (!confirm("ล้างบันทึกสถานะทั้งหมดในเครื่องนี้ และเริ่มรอบ 7 วันใหม่ตั้งแต่วันนี้?")) return;
-  try { localStorage.removeItem("smt-log"); localStorage.setItem("smt-period", midnight(Date.now())); } catch(e){}
+  try { localStorage.removeItem(K.log); localStorage.setItem(K.period, midnight(Date.now())); } catch(e){}
   pStart = 0; checkPeriod(); logStatus(st.s, Date.now()); renderLog(false);
 });
 ["disp","logp"].forEach(id => $(id).addEventListener("dblclick", e => {
