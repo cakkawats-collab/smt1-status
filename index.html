@@ -343,7 +343,7 @@ body.ctl #ctl{display:block}
   - หน้าบันทึก: ลูกศร ขึ้น/ลง เลือกวัน ซ้าย/ขวา เปลี่ยนหน้ารายการ OK เปิดเมนู
     (กลับหน้าป้าย / ส่งออก Excel เฉพาะวันที่เลือก, รอบ 7 วัน หรือ 30 วันล่าสุด / แสดง Production)
   - ส่งออก Excel ได้จากเมนูหน้าบันทึก หรือหน้าควบคุม ไฟล์ .xlsx สร้างในเครื่อง ไม่ต้องต่อเน็ต
-    ชีต: สรุป / รายวัน / หยุดไลน์รายชั่วโมง / เปลี่ยนสถานะ (บันทึกทุกครั้งที่มีการเปลี่ยน)
+    ชีต: สรุป (ยอดรวม + รายการทุกครั้งที่มีการเปลี่ยนสถานะ) / รายวัน / หยุดไลน์รายชั่วโมง
   - เปลี่ยนสถานะแล้วอยู่ไม่ถึง 5 วินาที (กดเลื่อนผ่าน) จะไม่ถูกนับ แก้ได้ที่ IGNORE_SEC
   - ปุ่ม C สลับไปหน้าควบคุม (หรือเปิดด้วย #control, เปิดหน้าบันทึกตรงๆ ด้วย #log)
   - ?line=SMT%202      เปลี่ยนชื่อไลน์
@@ -853,6 +853,8 @@ async function exportExcel(day, span){
     const sub2 = "ส่งออกเมื่อ " + full(now) + " " + hms(now) + "   ไม่นับการเปลี่ยนสถานะที่สั้นกว่า " + IGNORE_SEC + " วินาที";
     const title = (rows, t, n) => { rows.push([[t + " " + LINE, S.title]]); rows.push([[sub1, S.sub]]); rows.push([[n || sub2, S.sub]]); rows.push(null); };
     const R = v => Math.round(v * 10) / 10;
+    const thDur = ms => { const sec = Math.max(0, Math.round(ms / 1000)), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), sc = sec % 60;
+      return ((h ? h + " ชม. " : "") + (m ? m + " นาที " : "") + (sc || (!h && !m) ? sc + " วินาที" : "")).trim(); };
 
     /* ชีต 1: สรุป */
     const stats = OPT.s.map((o, s) => {
@@ -879,11 +881,17 @@ async function exportExcel(day, span){
       [{f:"IF(B" + t1 + ">0,D" + t1 + "/B" + t1 + ",0)", v: sumN ? sumTot / 60000 / sumN : 0}, S.tNum],
       [{f:"MAX(G" + f1 + ":G" + l1 + ")", v: Math.max(0, ...stats.map(x => x.mx)) / 60000}, S.tNum], ["", S.tTxt]]);
     s1.push(null);
-    s1.push([["ชีตในไฟล์นี้", S.sec]]);
-    [["รายวัน", "สรุปแต่ละวัน แยกตามสถานะ ทั้งจำนวนครั้งและเวลา"],
-     ["หยุดไลน์รายชั่วโมง", "ตารางชั่วโมง × วัน แสดงนาทีที่หยุดไลน์ ช่องแดง = มีการหยุด"],
-     ["เปลี่ยนสถานะ", "ทุกครั้งที่มีการเปลี่ยนสถานะ เปลี่ยนจากอะไรเป็นอะไร เวลาเริ่ม–จบถึงวินาที และอยู่นานเท่าไร"]]
-      .forEach(([n, d]) => s1.push([[n, S.b], [d, S.def]]));
+    s1.push([["ทุกครั้งที่มีการเปลี่ยนสถานะ", S.sec]]);
+    const lh = s1.length + 1; let evMs = 0;
+    s1.push(["วันที่", "เวลาที่เปลี่ยน", "เปลี่ยนจาก", "เปลี่ยนเป็น", "เวลาจบ", "อยู่นาน\n(ชม.:นาที:วินาที)", "อยู่นาน\n(อ่านง่าย)", "หมายเหตุ"].map(h => [h, S.hd])); h1[lh] = 40;
+    iv.forEach(x => { evMs += x.b - x.a;
+      const pv = x.i > 0 ? a[x.i - 1].s : -1;
+      s1.push([[ser(midnight(x.a)), S.date], [ser(x.a), S.time], pv >= 0 ? [OPT.s[pv][0], S.st[pv]] : ["เริ่มบันทึก", S.txtc], [OPT.s[x.s][0], S.st[x.s]],
+        [ser(x.b), endStyle(x, S)], [dd(x.b - x.a), S.dur], [thDur(x.b - x.a), S.txtc], [note(x), S.txt]]); });
+    const ll = s1.length, lt = ll + 1, lrange = "A" + lh + ":H" + Math.max(ll, lh);
+    s1.push([["รวมทั้งหมด (ตามตัวกรอง)", S.tTxt], ["", S.tTxt], ["", S.tTxt], [{f:"SUBTOTAL(103,D" + (lh + 1) + ":D" + ll + ")", v: iv.length}, S.tInt], ["ครั้ง", S.tTxt],
+      [{f:"SUBTOTAL(109,F" + (lh + 1) + ":F" + ll + ")", v: dd(evMs)}, S.tDur], [thDur(evMs), S.tTxt], ["", S.tTxt]]);
+    m1.push("A" + lt + ":C" + lt);
 
     /* ชีต 2: รายวัน */
     const s2 = [], m2 = [], h2 = {1: 26};
@@ -935,26 +943,10 @@ async function exportExcel(day, span){
     for (let c = 1; c <= lastC; c++) tr3.push([{f:"SUM(" + C(c) + (hg + 1) + ":" + C(c) + (t3 - 1) + ")", v: R(c === lastC ? grand : colSum[c - 1])}, S.tNum]);
     s3.push(tr3);
 
-    /* ชีต 5: บันทึกการเปลี่ยนสถานะ (ทุกครั้งที่มีการเปลี่ยน) */
-    const s5 = [], m5 = [], h5 = {1: 26};
-    title(s5, "บันทึกการเปลี่ยนสถานะ", "ทุกครั้งที่มีการเปลี่ยนสถานะ บอกว่าเปลี่ยนจากอะไรเป็นอะไร เวลาเริ่ม–จบถึงวินาที และอยู่ในสถานะนั้นนานเท่าไร  ใช้ตัวกรองที่หัวตารางได้ แถวรวมจะคำนวณตามที่กรองไว้");
-    const he = s5.length + 1; let evMs = 0;
-    s5.push(["ลำดับ", "วันที่", "วัน", "เปลี่ยนจาก", "เปลี่ยนเป็น", "เวลาที่เปลี่ยน", "เวลาจบ", "ระยะเวลา\n(ชม.:นาที:วินาที)", "ระยะเวลา\n(นาที)", "หมายเหตุ"].map(h => [h, S.hd])); h5[he] = 40;
-    iv.forEach((x, i) => { evMs += x.b - x.a;
-      const pv = x.i > 0 ? a[x.i - 1].s : -1;
-      s5.push([[i + 1, S.int], [ser(midnight(x.a)), S.date], [dname(x.a), S.txtc], pv >= 0 ? [OPT.s[pv][0], S.st[pv]] : ["เริ่มบันทึก", S.txtc], [OPT.s[x.s][0], S.st[x.s]],
-        [ser(x.a), S.time], [ser(x.b), endStyle(x, S)], [dd(x.b - x.a), S.dur], [(x.b - x.a) / 60000, S.num], [note(x), S.txt]]); });
-    const l5 = s5.length, t5 = l5 + 1;
-    s5.push([["รวม (ตามตัวกรอง)", S.tTxt], ["", S.tTxt], ["", S.tTxt], ["", S.tTxt], [{f:"SUBTOTAL(103,E" + (he + 1) + ":E" + l5 + ")", v: iv.length}, S.tInt], ["ครั้ง", S.tTxt], ["", S.tTxt],
-      [{f:"SUBTOTAL(109,H" + (he + 1) + ":H" + l5 + ")", v: dd(evMs)}, S.tDur], [{f:"SUBTOTAL(109,I" + (he + 1) + ":I" + l5 + ")", v: evMs / 60000}, S.tNum], ["", S.tTxt]]);
-    m5.push("A" + t5 + ":D" + t5);
-
     const sheets = [
-      {name:"สรุป", xml: XL.sheet(s1, {widths:[18, 12, 18, 12, 12, 14, 12, 22], merges:m1, heights:h1, active:true, onePage:true})},
+      {name:"สรุป", filter:lrange, xml: XL.sheet(s1, {widths:[18, 14, 18, 16, 20, 19, 24, 24], merges:m1, heights:h1, active:true, landscape:true, filter:lrange})},
       {name:"รายวัน", xml: XL.sheet(s2, {widths:[13, 7, ...OPT.s.flatMap(() => [8, 19]), 19, 12], merges:m2, heights:h2, freeze:{r:hr + 1, c:2}, landscape:true})},
-      {name:"หยุดไลน์รายชั่วโมง", xml: XL.sheet(s3, {widths:[17, ...days.map(() => many ? 8.5 : 12), 11], heights:h3, freeze:{r:hg, c:1}, landscape:days.length > 4, onePage:true})},
-      {name:"เปลี่ยนสถานะ", filter:"A" + he + ":J" + Math.max(l5, he), xml: XL.sheet(s5, {widths:[8, 12, 7, 16, 16, 14, 20, 19, 12, 28], merges:m5, heights:h5,
-        freeze:{r:he, c:0}, filter:"A" + he + ":J" + Math.max(l5, he), landscape:true})}
+      {name:"หยุดไลน์รายชั่วโมง", xml: XL.sheet(s3, {widths:[17, ...days.map(() => many ? 8.5 : 12), 11], heights:h3, freeze:{r:hg, c:1}, landscape:days.length > 4, onePage:true})}
     ];
     const blob = await XL.book(sheets, STY);
     const name = "StatusMachine_" + LINE.replace(/[^\w\-]+/g, "") + (day ? "_" + ymd(day) : span ? "_" + days.length + (days.length === 1 ? "day_" : "days_") + ymd(R0) + "_to_" + ymd(d0) : "_7days_" + ymd(pStart) + "_to_" + ymd(addDays(pStart, PERIOD_DAYS - 1))) + ".xlsx";
