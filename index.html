@@ -343,7 +343,7 @@ body.ctl #ctl{display:block}
   - หน้าบันทึก: ลูกศร ขึ้น/ลง เลือกวัน ซ้าย/ขวา เปลี่ยนหน้ารายการ OK เปิดเมนู
     (กลับหน้าป้าย / ส่งออก Excel เฉพาะวันที่เลือก, รอบ 7 วัน หรือ 30 วันล่าสุด / แสดง Production)
   - ส่งออก Excel ได้จากเมนูหน้าบันทึก หรือหน้าควบคุม ไฟล์ .xlsx สร้างในเครื่อง ไม่ต้องต่อเน็ต
-    มี 4 ชีต: สรุป / รายวัน / หยุดไลน์รายชั่วโมง / เหตุการณ์
+    ชีต: สรุป / รายวัน / หยุดไลน์รายชั่วโมง / เปลี่ยนสถานะ (บันทึกทุกครั้งที่มีการเปลี่ยน)
   - เปลี่ยนสถานะแล้วอยู่ไม่ถึง 5 วินาที (กดเลื่อนผ่าน) จะไม่ถูกนับ แก้ได้ที่ IGNORE_SEC
   - ปุ่ม C สลับไปหน้าควบคุม (หรือเปิดด้วย #control, เปิดหน้าบันทึกตรงๆ ด้วย #log)
   - ?line=SMT%202      เปลี่ยนชื่อไลน์
@@ -684,22 +684,29 @@ const XL = (() => {
   const CRC = new Uint32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC[n] = c >>> 0; }
   const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
-  function zip(files){                       // ZIP แบบไม่บีบอัด (store) ซึ่ง Excel เปิดได้ปกติ
+  async function deflate(bytes){                  // บีบอัดด้วย CompressionStream ถ้าเบราว์เซอร์รองรับ (ไม่รองรับ = เก็บแบบไม่บีบอัด)
+    if (typeof CompressionStream === "undefined" || bytes.length < 4096) return null;
+    try { return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer()); }
+    catch(e){ return null; }
+  }
+  async function zip(files){
     const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
-    files.forEach(([name, text]) => {
+    for (const [name, text] of files) {
       const nb = enc.encode(name), db = enc.encode(text), crc = crc32(db);
+      let data = db, method = 0; const cz = await deflate(db);
+      if (cz && cz.length < db.length) { data = cz; method = 8; }
       const h = new DataView(new ArrayBuffer(30));
-      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true);
-      h.setUint16(12, 0x21, true); h.setUint32(14, crc, true); h.setUint32(18, db.length, true); h.setUint32(22, db.length, true);
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, method, true);
+      h.setUint16(12, 0x21, true); h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, db.length, true);
       h.setUint16(26, nb.length, true);
-      parts.push(new Uint8Array(h.buffer), nb, db);
+      parts.push(new Uint8Array(h.buffer), nb, data);
       const c = new DataView(new ArrayBuffer(46));
-      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
-      c.setUint16(14, 0x21, true); c.setUint32(16, crc, true); c.setUint32(20, db.length, true); c.setUint32(24, db.length, true);
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, method, true);
+      c.setUint16(14, 0x21, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, db.length, true);
       c.setUint16(28, nb.length, true); c.setUint32(42, off, true);
       cen.push(new Uint8Array(c.buffer), nb);
-      off += 30 + nb.length + db.length;
-    });
+      off += 30 + nb.length + data.length;
+    }
     const size = cen.reduce((t, b) => t + b.length, 0), e = new DataView(new ArrayBuffer(22));
     e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
     e.setUint32(12, size, true); e.setUint32(16, off, true);
@@ -738,16 +745,17 @@ const XL = (() => {
       hd: xf(0, 1, F_HEAD, 1, "center", 1),
       txt: xf(0, 0, 0, 1), txtc: xf(0, 0, 0, 1, "center"), date: xf(164, 0, 0, 1, "center"), time: xf(165, 0, 0, 1, "center"),
       dt: xf(168, 0, 0, 1, "center"), dur: xf(166, 0, 0, 1, "center"), num: xf(167, 0, 0, 1, "center"), int: xf(1, 0, 0, 1, "center"),
-      pct: xf(171, 0, 0, 1, "center"),
+      pct: xf(171, 0, 0, 1, "center"), hm: xf(172, 0, 0, 1, "center"), durz: xf(173, 0, 0, 1, "center"), cnt: xf(174, 0, 0, 1, "center"), b: xf(0, 5, 0, 0),
       tTxt: xf(0, 5, F_TOT, 2), tDur: xf(166, 5, F_TOT, 2, "center"), tNum: xf(167, 5, F_TOT, 2, "center"),
       tInt: xf(1, 5, F_TOT, 2, "center"), tPct: xf(171, 5, F_TOT, 2, "center"),
       h0: xf(170, 7, 0, 1, "center"), h1: xf(170, 6, F_RED, 1, "center"), bNum: xf(170, 5, F_SUB, 1, "center"),
       st: OPT.s.map(o => xf(0, o[2] ? 1 : 5, fill(o[1]), 1, "center", 1))
     };
     const xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-      '<numFmts count="8"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="hh:mm:ss"/>' +
+      '<numFmts count="11"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="hh:mm:ss"/>' +
       '<numFmt numFmtId="166" formatCode="[h]:mm:ss"/><numFmt numFmtId="167" formatCode="0.0"/><numFmt numFmtId="168" formatCode="dd/mm/yyyy hh:mm:ss"/>' +
-      '<numFmt numFmtId="169" formatCode="[h]:mm"/><numFmt numFmtId="170" formatCode="0.0;-0.0;&quot;–&quot;"/><numFmt numFmtId="171" formatCode="0.0%"/></numFmts>' +
+      '<numFmt numFmtId="169" formatCode="[h]:mm"/><numFmt numFmtId="170" formatCode="0.0;-0.0;&quot;–&quot;"/><numFmt numFmtId="171" formatCode="0.0%"/><numFmt numFmtId="172" formatCode="hh:mm"/>' +
+      '<numFmt numFmtId="173" formatCode="[h]:mm:ss;;&quot;–&quot;"/><numFmt numFmtId="174" formatCode="0;-0;&quot;–&quot;"/></numFmts>' +
       '<fonts count="' + fonts.length + '">' + fonts.join("") + '</fonts><fills count="' + fills.length + '">' + fills.join("") + '</fills>' +
       '<borders count="' + borders.length + '">' + borders.join("") + '</borders>' +
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
@@ -756,19 +764,23 @@ const XL = (() => {
     return {xml, S};
   }
 
-  // rows: [[ค่า, รูปแบบ], ...] ค่าเป็นตัวเลข ข้อความ หรือ {f:"สูตร"}; ใส่ "" เพื่อให้มีกรอบแต่ไม่มีค่า
+  // rows: [[ค่า, รูปแบบ], ...] ค่าเป็นตัวเลข ข้อความ หรือ {f:"สูตร", v:ค่าที่คำนวณแล้ว}  (v ทำให้เปิดใน Protected View ก็เห็นตัวเลข)
   function sheet(rows, o){
-    const sd = rows.map((r, ri) => {
-      const h = o.heights && o.heights[ri + 1];
-      return '<row r="' + (ri + 1) + '"' + (h ? ' ht="' + h + '" customHeight="1"' : '') + '>' + (r || []).map((c, ci) => {
-        if (!c) return "";
-        const [v, st] = c, ref = col(ci) + (ri + 1), sa = st ? ' s="' + st + '"' : '';
-        if (v === "" || v === null || v === undefined) return '<c r="' + ref + '"' + sa + '/>';
-        if (typeof v === "number") return '<c r="' + ref + '"' + sa + '><v>' + (Math.round(v * 1e9) / 1e9) + '</v></c>';
-        if (typeof v === "object") return '<c r="' + ref + '"' + sa + '><f>' + esc(v.f) + '</f></c>';
-        return '<c r="' + ref + '"' + sa + ' t="inlineStr"><is><t xml:space="preserve">' + esc(v) + '</t></is></c>';
-      }).join("") + '</row>';
-    }).join("");
+    const CL = []; for (let i = 0; i < 40; i++) CL.push(col(i));
+    const num = v => Math.round(v * 1e9) / 1e9, out = [];
+    for (let ri = 0; ri < rows.length; ri++) {
+      const r = rows[ri], h = o.heights && o.heights[ri + 1];
+      let x = '<row r="' + (ri + 1) + '"' + (h ? ' ht="' + h + '" customHeight="1"' : '') + '>';
+      if (r) for (let ci = 0; ci < r.length; ci++) {
+        const c = r[ci]; if (!c) continue;
+        const v = c[0], st = c[1], ref = CL[ci] + (ri + 1), sa = st ? ' s="' + st + '"' : '';
+        if (v === "" || v === null || v === undefined) x += '<c r="' + ref + '"' + sa + '/>';
+        else if (typeof v === "number") x += '<c r="' + ref + '"' + sa + '><v>' + num(v) + '</v></c>';
+        else if (typeof v === "object") x += '<c r="' + ref + '"' + sa + '><f>' + esc(v.f) + '</f>' + (typeof v.v === "number" ? '<v>' + num(v.v) + '</v>' : '') + '</c>';
+        else x += '<c r="' + ref + '"' + sa + ' t="inlineStr"><is><t xml:space="preserve">' + esc(v) + '</t></is></c>';
+      }
+      out.push(x + '</row>');
+    }
     const fr = o.freeze || {r:0, c:0};
     const pane = fr.r || fr.c ? '<pane' + (fr.c ? ' xSplit="' + fr.c + '"' : '') + (fr.r ? ' ySplit="' + fr.r + '"' : '') +
       ' topLeftCell="' + col(fr.c) + (fr.r + 1) + '" activePane="' + (fr.r && fr.c ? 'bottomRight' : fr.r ? 'bottomLeft' : 'topRight') + '" state="frozen"/>' : '';
@@ -777,13 +789,13 @@ const XL = (() => {
       '<sheetViews><sheetView workbookViewId="0" showGridLines="0"' + (o.active ? ' tabSelected="1"' : '') + '>' + pane + '</sheetView></sheetViews>' +
       '<sheetFormatPr defaultRowHeight="19.5" customHeight="1"/>' +
       '<cols>' + o.widths.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join("") + '</cols>' +
-      '<sheetData>' + sd + '</sheetData>' +
+      '<sheetData>' + out.join("") + '</sheetData>' +
       (o.filter ? '<autoFilter ref="' + o.filter + '"/>' : '') +
       (o.merges && o.merges.length ? '<mergeCells count="' + o.merges.length + '">' + o.merges.map(m => '<mergeCell ref="' + m + '"/>').join("") + '</mergeCells>' : '') +
       '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>' +
       '<pageSetup paperSize="9" orientation="' + (o.landscape ? 'landscape' : 'portrait') + '" fitToWidth="1" fitToHeight="' + (o.onePage ? 1 : 0) + '"/></worksheet>';
   }
-  function book(sheets, stylesXml){
+  async function book(sheets, stylesXml){
     const ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
       '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
       '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
@@ -807,132 +819,158 @@ const XL = (() => {
 })();
 
 // day = เที่ยงคืนของวันที่จะส่งออก | span = จำนวนวันล่าสุด (เช่น 30) | ไม่ใส่ทั้งคู่ = รอบ 7 วันปัจจุบัน
-function exportExcel(day, span){
-  checkPeriod();
-  const now = Date.now(), d0 = midnight(now), C = XL.col;
-  const R0 = day || (span ? spanStart(span) : pStart), R1 = day ? Math.min(addDays(day, 1), now) : now, LO = span ? R0 : pStart;
-  const a = loadLog();
-  const iv = a.map((e, i) => ({s:e.s, a:Math.max(e.t, LO), b: i + 1 < a.length ? a[i + 1].t : now, live: i === a.length - 1}))
-              .filter(x => x.b > x.a && x.b > R0 && x.a < R1);
-  const clip = (x, A, B) => Math.max(0, Math.min(x.b, B) - Math.max(x.a, A));
-  const ser = ts => (ts - new Date(ts).getTimezoneOffset() * 60000) / DAY + 25569;   // วันเวลาแบบ Excel
-  const dd = ms => ms / DAY;                                                          // ระยะเวลาแบบ Excel
-  const full = ts => dm(ts) + "/" + new Date(ts).getFullYear();
-  const hms = ts => { const d = new Date(ts); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); };
-  const ymd = ts => { const d = new Date(ts); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
-  const dname = ts => TH_DAY[new Date(ts).getDay()].replace(".", "");
-  const note = x => x.live ? "ยังไม่จบ (นับถึงเวลาส่งออก)" : midnight(x.b - 1) !== midnight(x.a) ? "ข้ามวัน" : "";
-  const endStyle = (x, S) => midnight((x.live ? now : x.b) - 1) !== midnight(x.a) ? S.dt : S.time;
-  const {xml: STY, S} = XL.styles();
-  const days = [];
-  if (day) days.push(day);
-  else if (span) for (let A = midnight(R0); A <= d0; A = addDays(A, 1)) days.push(A);
-  else for (let i = 0; i < PERIOD_DAYS; i++) { const A = addDays(pStart, i); if (A <= d0) days.push(A); }
-  const many = days.length > 10;
-  const sub1 = (day ? "วันที่ " + dname(day) + " " + full(day) : (span ? "ช่วงข้อมูล " + days.length + " วัน " : "ช่วงข้อมูล ") + full(R0) + " – " + full(d0)) + "   (ข้อมูลถึง " + full(R1) + " " + hms(R1) + ")";
-  const sub2 = "ส่งออกเมื่อ " + full(now) + " " + hms(now) + "   ไม่นับการเปลี่ยนสถานะที่สั้นกว่า " + IGNORE_SEC + " วินาที";
-  const title = (rows, t, n) => { rows.push([[t + " " + LINE, S.title]]); rows.push([[sub1, S.sub]]); if (n) rows.push([[n, S.sub]]); else rows.push([[sub2, S.sub]]); rows.push(null); };
+let xlBusy = false;
+async function exportExcel(day, span){
+  if (xlBusy) return;
+  xlBusy = true;
+  try {
+    toast("กำลังสร้างไฟล์ Excel… (ข้อมูลละเอียดอาจใช้เวลาสักครู่)", 120000);
+    await new Promise(r => setTimeout(r, 80));
+    checkPeriod();
+    const now = Date.now(), d0 = midnight(now), C = XL.col, nS = OPT.s.length, MIN = 60000, HOUR = 3600e3;
+    const R0 = day || (span ? spanStart(span) : pStart), R1 = day ? Math.min(addDays(day, 1), now) : now, LO = span ? R0 : pStart;
+    const a = loadLog();
+    const iv = a.map((e, i) => ({s:e.s, a:Math.max(e.t, LO), b: i + 1 < a.length ? a[i + 1].t : now, live: i === a.length - 1, i, t0: e.t}))
+                .filter(x => x.b > x.a && x.b > R0 && x.a < R1);
+    const T0 = iv.length ? Math.max(R0, iv[0].a) : R0;                                   // เวลาที่เริ่มมีข้อมูลในช่วงนี้
+    const clip = (x, A, B) => Math.max(0, Math.min(x.b, B) - Math.max(x.a, A));
+    const ser = ts => (ts - new Date(ts).getTimezoneOffset() * 60000) / DAY + 25569;     // วันเวลาแบบ Excel
+    const dd = ms => ms / DAY;                                                            // ระยะเวลาแบบ Excel
+    const full = ts => dm(ts) + "/" + new Date(ts).getFullYear();
+    const hms = ts => { const d = new Date(ts); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); };
+    const ymd = ts => { const d = new Date(ts); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+    const dname = ts => TH_DAY[new Date(ts).getDay()].replace(".", "");
+    const note = x => x.live ? "ยังไม่จบ (นับถึงเวลาส่งออก)" : midnight(x.b - 1) !== midnight(x.a) ? "ข้ามวัน" : "";
+    const endStyle = (x, S) => midnight((x.live ? now : x.b) - 1) !== midnight(x.a) ? S.dt : S.time;
+    const {xml: STY, S} = XL.styles();
+    const prod = OPT.s.findIndex(o => o[3] === "run");
+    const days = [];
+    if (day) days.push(day);
+    else if (span) for (let A = midnight(R0); A <= d0; A = addDays(A, 1)) days.push(A);
+    else for (let i = 0; i < PERIOD_DAYS; i++) { const A = addDays(pStart, i); if (A <= d0) days.push(A); }
+    const many = days.length > 10;
+    const sub1 = (day ? "วันที่ " + dname(day) + " " + full(day) : (span ? "ช่วงข้อมูล " + days.length + " วัน " : "ช่วงข้อมูล ") + full(R0) + " – " + full(d0)) + "   (ข้อมูลถึง " + full(R1) + " " + hms(R1) + ")";
+    const sub2 = "ส่งออกเมื่อ " + full(now) + " " + hms(now) + "   ไม่นับการเปลี่ยนสถานะที่สั้นกว่า " + IGNORE_SEC + " วินาที";
+    const title = (rows, t, n) => { rows.push([[t + " " + LINE, S.title]]); rows.push([[sub1, S.sub]]); rows.push([[n || sub2, S.sub]]); rows.push(null); };
+    const R = v => Math.round(v * 10) / 10;
 
-  /* ชีต 1: สรุป */
-  const s1 = [], m1 = [], h1 = {1: 26};
-  title(s1, "รายงานสถานะเครื่อง");
-  s1.push([["สรุปตามสถานะ", S.sec]]);
-  s1.push(["สถานะ", "จำนวนครั้ง", "เวลารวม\n(ชม.:นาที:วินาที)", "เวลารวม\n(นาที)", "สัดส่วน\nของเวลา", "เฉลี่ยต่อครั้ง\n(นาที)", "นานสุด\n(นาที)", "ครั้งที่นานสุด\nเริ่มเมื่อ"].map(h => [h, S.hd]));
-  h1[s1.length] = 36;
-  const f1 = s1.length + 1, l1 = s1.length + OPT.s.length, t1 = l1 + 1;
-  OPT.s.forEach((o, s) => {
-    const ev = iv.filter(x => x.s === s), ms = ev.map(x => clip(x, R0, R1)), tot = ms.reduce((p, q) => p + q, 0);
-    const mx = ms.length ? Math.max(...ms) : 0, mxe = ev[ms.indexOf(mx)];
-    const r = s1.length + 1;
-    s1.push([[o[0], S.st[s]], [ev.length, S.int], [dd(tot), S.dur], [tot / 60000, S.num],
-      [{f:"IF($D$" + t1 + ">0,D" + r + "/$D$" + t1 + ",0)"}, S.pct], [{f:"IF(B" + r + ">0,D" + r + "/B" + r + ",0)"}, S.num],
-      [mx / 60000, S.num], mxe ? [ser(mxe.a), S.dt] : ["–", S.txtc]]);
-  });
-  s1.push([["รวมทั้งหมด", S.tTxt], [{f:"SUM(B" + f1 + ":B" + l1 + ")"}, S.tInt], [{f:"SUM(C" + f1 + ":C" + l1 + ")"}, S.tDur],
-    [{f:"SUM(D" + f1 + ":D" + l1 + ")"}, S.tNum], [{f:"SUM(E" + f1 + ":E" + l1 + ")"}, S.tPct],
-    [{f:"IF(B" + t1 + ">0,D" + t1 + "/B" + t1 + ",0)"}, S.tNum], [{f:"MAX(G" + f1 + ":G" + l1 + ")"}, S.tNum], ["", S.tTxt]]);
-  s1.push(null);
-  s1.push([["หยุดไลน์นานที่สุด 5 อันดับ", S.sec]]);
-  s1.push(["อันดับ", "วันที่", "วัน", "เวลาเริ่ม", "เวลาจบ", "ระยะเวลา\n(ชม.:นาที:วินาที)", "ระยะเวลา\n(นาที)", "หมายเหตุ"].map(h => [h, S.hd]));
-  h1[s1.length] = 36;
-  const top = iv.filter(x => STOPS.includes(x.s)).sort((p, q) => (q.b - q.a) - (p.b - p.a)).slice(0, 5);
-  if (top.length) top.forEach((x, i) => s1.push([[i + 1, S.int], [ser(midnight(x.a)), S.date], [dname(x.a), S.txtc], [ser(x.a), S.time],
-    [ser(x.b), endStyle(x, S)], [dd(x.b - x.a), S.dur], [(x.b - x.a) / 60000, S.num], [note(x), S.txt]]));
-  else { s1.push([["ไม่มีการหยุดไลน์ในช่วงนี้", S.txtc], ...Array(7).fill(["", S.txtc])]); m1.push("A" + s1.length + ":H" + s1.length); }
-
-  /* ชีต 2: รายวัน */
-  const s2 = [], m2 = [], h2 = {1: 26};
-  title(s2, "สรุปรายวัน");
-  const nS = OPT.s.length, cRec = 2 + nS * 2, cPct = cRec + 1, hr = s2.length + 1;
-  const r1 = [["วันที่", S.hd], ["วัน", S.hd]], r2 = [["", S.hd], ["", S.hd]];
-  OPT.s.forEach((o, s) => { r1.push([o[0], S.st[s]], ["", S.st[s]]); r2.push(["ครั้ง", S.hd], ["เวลา\n(ชม.:นาที:วินาที)", S.hd]);
-    m2.push(C(2 + s * 2) + hr + ":" + C(3 + s * 2) + hr); });
-  r1.push(["เวลาที่บันทึก\nทั้งหมด", S.hd], ["สัดส่วน\nเดินเครื่อง", S.hd]); r2.push(["", S.hd], ["", S.hd]);
-  [0, 1, cRec, cPct].forEach(c => m2.push(C(c) + hr + ":" + C(c) + (hr + 1)));
-  s2.push(r1); s2.push(r2); h2[hr] = 24; h2[hr + 1] = 36;
-  const f2 = s2.length + 1;
-  const prodCol = OPT.s.findIndex(o => o[3] === "run");
-  days.forEach(A => {
-    const B = Math.min(addDays(A, 1), now), r = s2.length + 1, row = [[ser(A), S.date], [dname(A), S.txtc]];
-    OPT.s.forEach((o, s) => { const ev = iv.filter(x => x.s === s && clip(x, A, B) > 0);
-      row.push([ev.length, S.int], [dd(ev.reduce((t, x) => t + clip(x, A, B), 0)), S.dur]); });
-    row.push([{f:"SUM(" + OPT.s.map((o, s) => C(3 + s * 2) + r).join(",") + ")"}, S.dur]);
-    row.push([prodCol >= 0 ? {f:"IF(" + C(cRec) + r + ">0," + C(3 + prodCol * 2) + r + "/" + C(cRec) + r + ",0)"} : "", S.pct]);
-    s2.push(row);
-  });
-  const l2 = s2.length, t2 = l2 + 1, tr = [["รวมทั้งหมด", S.tTxt], ["", S.tTxt]];
-  for (let c = 2; c <= cRec; c++) tr.push([{f:"SUM(" + C(c) + f2 + ":" + C(c) + l2 + ")"}, (c - 2) % 2 === 0 && c < cRec ? S.tInt : S.tDur]);
-  tr.push([prodCol >= 0 ? {f:"IF(" + C(cRec) + t2 + ">0," + C(3 + prodCol * 2) + t2 + "/" + C(cRec) + t2 + ",0)"} : "", S.tPct]);
-  s2.push(tr); m2.push("A" + t2 + ":B" + t2);
-
-  /* ชีต 3: หยุดไลน์รายชั่วโมง */
-  const s3 = [], h3 = {1: 26};
-  title(s3, "หยุดไลน์รายชั่วโมง (นาที)", "ตัวเลขคือจำนวนนาทีที่เป็นสถานะ Stop line ในแต่ละชั่วโมง  ช่องสีแดง = มีการหยุดไลน์");
-  const hh = s3.length + 1;
-  s3.push([["ช่วงเวลา", S.hd], ...days.map(A => [dname(A) + (many ? "\n" : " ") + dm(A), S.hd]), ["รวม", S.hd]]); h3[hh] = many ? 34 : 24;
-  const lastC = days.length + 1;
-  for (let h = 0; h < 24; h++) {
-    const r = s3.length + 1, row = [[pad(h) + ":00 – " + pad(h + 1 === 24 ? 0 : h + 1) + ":00", S.txtc]];
-    days.forEach(A => {
-      const H0 = A + h * 3600e3, H1 = H0 + 3600e3;
-      const m = iv.filter(x => STOPS.includes(x.s)).reduce((t, x) => t + clip(x, H0, Math.min(H1, R1)), 0) / 60000;
-      row.push([Math.round(m * 10) / 10, m > 0 ? S.h1 : S.h0]);
+    /* ชีต 1: สรุป */
+    const stats = OPT.s.map((o, s) => {
+      const ev = iv.filter(x => x.s === s), ms = ev.map(x => clip(x, R0, R1));
+      const tot = ms.reduce((p, q) => p + q, 0), mx = ms.length ? Math.max(...ms) : 0;
+      return {n: ev.length, tot, mx, mxe: ev[ms.indexOf(mx)]};
     });
-    row.push([{f:"SUM(B" + r + ":" + C(lastC - 1) + r + ")"}, S.bNum]);
-    s3.push(row);
+    const sumTot = stats.reduce((p, q) => p + q.tot, 0), sumN = stats.reduce((p, q) => p + q.n, 0);
+    const s1 = [], m1 = [], h1 = {1: 26};
+    title(s1, "รายงานสถานะเครื่อง");
+    s1.push([["สรุปตามสถานะ", S.sec]]);
+    s1.push(["สถานะ", "จำนวนครั้ง", "เวลารวม\n(ชม.:นาที:วินาที)", "เวลารวม\n(นาที)", "สัดส่วน\nของเวลา", "เฉลี่ยต่อครั้ง\n(นาที)", "นานสุด\n(นาที)", "ครั้งที่นานสุด\nเริ่มเมื่อ"].map(h => [h, S.hd]));
+    h1[s1.length] = 40;
+    const f1 = s1.length + 1, l1 = s1.length + nS, t1 = l1 + 1;
+    OPT.s.forEach((o, s) => {
+      const x = stats[s], r = s1.length + 1;
+      s1.push([[o[0], S.st[s]], [x.n, S.int], [dd(x.tot), S.dur], [x.tot / 60000, S.num],
+        [{f:"IF($D$" + t1 + ">0,D" + r + "/$D$" + t1 + ",0)", v: sumTot > 0 ? x.tot / sumTot : 0}, S.pct],
+        [{f:"IF(B" + r + ">0,D" + r + "/B" + r + ",0)", v: x.n ? x.tot / 60000 / x.n : 0}, S.num],
+        [x.mx / 60000, S.num], x.mxe ? [ser(x.mxe.a), S.dt] : ["–", S.txtc]]);
+    });
+    s1.push([["รวมทั้งหมด", S.tTxt], [{f:"SUM(B" + f1 + ":B" + l1 + ")", v: sumN}, S.tInt], [{f:"SUM(C" + f1 + ":C" + l1 + ")", v: dd(sumTot)}, S.tDur],
+      [{f:"SUM(D" + f1 + ":D" + l1 + ")", v: sumTot / 60000}, S.tNum], [{f:"SUM(E" + f1 + ":E" + l1 + ")", v: sumTot > 0 ? 1 : 0}, S.tPct],
+      [{f:"IF(B" + t1 + ">0,D" + t1 + "/B" + t1 + ",0)", v: sumN ? sumTot / 60000 / sumN : 0}, S.tNum],
+      [{f:"MAX(G" + f1 + ":G" + l1 + ")", v: Math.max(0, ...stats.map(x => x.mx)) / 60000}, S.tNum], ["", S.tTxt]]);
+    s1.push(null);
+    s1.push([["ชีตในไฟล์นี้", S.sec]]);
+    [["รายวัน", "สรุปแต่ละวัน แยกตามสถานะ ทั้งจำนวนครั้งและเวลา"],
+     ["หยุดไลน์รายชั่วโมง", "ตารางชั่วโมง × วัน แสดงนาทีที่หยุดไลน์ ช่องแดง = มีการหยุด"],
+     ["เปลี่ยนสถานะ", "ทุกครั้งที่มีการเปลี่ยนสถานะ เปลี่ยนจากอะไรเป็นอะไร เวลาเริ่ม–จบถึงวินาที และอยู่นานเท่าไร"]]
+      .forEach(([n, d]) => s1.push([[n, S.b], [d, S.def]]));
+
+    /* ชีต 2: รายวัน */
+    const s2 = [], m2 = [], h2 = {1: 26};
+    title(s2, "สรุปรายวัน");
+    const cRec = 2 + nS * 2, cPct = cRec + 1, hr = s2.length + 1;
+    const r1 = [["วันที่", S.hd], ["วัน", S.hd]], r2 = [["", S.hd], ["", S.hd]];
+    OPT.s.forEach((o, s) => { r1.push([o[0], S.st[s]], ["", S.st[s]]); r2.push(["ครั้ง", S.hd], ["เวลา\n(ชม.:นาที:วินาที)", S.hd]);
+      m2.push(C(2 + s * 2) + hr + ":" + C(3 + s * 2) + hr); });
+    r1.push(["เวลาที่บันทึก\nทั้งหมด", S.hd], ["สัดส่วน\nเดินเครื่อง", S.hd]); r2.push(["", S.hd], ["", S.hd]);
+    [0, 1, cRec, cPct].forEach(c => m2.push(C(c) + hr + ":" + C(c) + (hr + 1)));
+    s2.push(r1); s2.push(r2); h2[hr] = 24; h2[hr + 1] = 40;
+    const f2 = s2.length + 1, dTot = OPT.s.map(() => ({n:0, ms:0})); let dRec = 0;
+    days.forEach(A => {
+      const B = Math.min(addDays(A, 1), now), r = s2.length + 1, row = [[ser(A), S.date], [dname(A), S.txtc]]; let rec = 0, pm = 0;
+      OPT.s.forEach((o, s) => {
+        const ev = iv.filter(x => x.s === s && clip(x, A, B) > 0), ms = ev.reduce((t, x) => t + clip(x, A, B), 0);
+        row.push([ev.length, S.int], [dd(ms), S.dur]); rec += ms; dTot[s].n += ev.length; dTot[s].ms += ms; if (s === prod) pm = ms;
+      });
+      dRec += rec;
+      row.push([{f:"SUM(" + OPT.s.map((o, s) => C(3 + s * 2) + r).join(",") + ")", v: dd(rec)}, S.dur]);
+      row.push([prod >= 0 ? {f:"IF(" + C(cRec) + r + ">0," + C(3 + prod * 2) + r + "/" + C(cRec) + r + ",0)", v: rec > 0 ? pm / rec : 0} : "", S.pct]);
+      s2.push(row);
+    });
+    const l2 = s2.length, t2 = l2 + 1, tr2 = [["รวมทั้งหมด", S.tTxt], ["", S.tTxt]];
+    for (let c = 2; c <= cRec; c++) {
+      const isCnt = c < cRec && (c - 2) % 2 === 0, k = (c - 2) >> 1;
+      tr2.push([{f:"SUM(" + C(c) + f2 + ":" + C(c) + l2 + ")", v: c === cRec ? dd(dRec) : isCnt ? dTot[k].n : dd(dTot[k].ms)}, isCnt ? S.tInt : S.tDur]);
+    }
+    tr2.push([prod >= 0 ? {f:"IF(" + C(cRec) + t2 + ">0," + C(3 + prod * 2) + t2 + "/" + C(cRec) + t2 + ",0)", v: dRec > 0 ? dTot[prod].ms / dRec : 0} : "", S.tPct]);
+    s2.push(tr2); m2.push("A" + t2 + ":B" + t2);
+
+    /* ชีต 4: หยุดไลน์รายชั่วโมง (ตารางความร้อน) */
+    const s3 = [], h3 = {1: 26}, stopEv = iv.filter(x => STOPS.includes(x.s));
+    title(s3, "หยุดไลน์รายชั่วโมง (นาที)", "ตัวเลขคือจำนวนนาทีที่เป็นสถานะ Stop line ในแต่ละชั่วโมง  ช่องสีแดง = มีการหยุดไลน์");
+    const hg = s3.length + 1;
+    s3.push([["ช่วงเวลา", S.hd], ...days.map(A => [dname(A) + (many ? "\n" : " ") + dm(A), S.hd]), ["รวม", S.hd]]); h3[hg] = many ? 34 : 24;
+    const lastC = days.length + 1, colSum = days.map(() => 0); let grand = 0;
+    for (let h = 0; h < 24; h++) {
+      const r = s3.length + 1, row = [[pad(h) + ":00 – " + pad((h + 1) % 24) + ":00", S.txtc]]; let rs = 0;
+      days.forEach((A, i) => {
+        const H0 = A + h * HOUR, v = R(stopEv.reduce((t, x) => t + clip(x, H0, Math.min(H0 + HOUR, R1)), 0) / 60000);
+        colSum[i] += v; rs += v; row.push([v, v > 0 ? S.h1 : S.h0]);
+      });
+      grand += rs;
+      row.push([{f:"SUM(B" + r + ":" + C(lastC - 1) + r + ")", v: R(rs)}, S.bNum]);
+      s3.push(row);
+    }
+    const t3 = s3.length + 1, tr3 = [["รวมทั้งวัน", S.tTxt]];
+    for (let c = 1; c <= lastC; c++) tr3.push([{f:"SUM(" + C(c) + (hg + 1) + ":" + C(c) + (t3 - 1) + ")", v: R(c === lastC ? grand : colSum[c - 1])}, S.tNum]);
+    s3.push(tr3);
+
+    /* ชีต 5: บันทึกการเปลี่ยนสถานะ (ทุกครั้งที่มีการเปลี่ยน) */
+    const s5 = [], m5 = [], h5 = {1: 26};
+    title(s5, "บันทึกการเปลี่ยนสถานะ", "ทุกครั้งที่มีการเปลี่ยนสถานะ บอกว่าเปลี่ยนจากอะไรเป็นอะไร เวลาเริ่ม–จบถึงวินาที และอยู่ในสถานะนั้นนานเท่าไร  ใช้ตัวกรองที่หัวตารางได้ แถวรวมจะคำนวณตามที่กรองไว้");
+    const he = s5.length + 1; let evMs = 0;
+    s5.push(["ลำดับ", "วันที่", "วัน", "เปลี่ยนจาก", "เปลี่ยนเป็น", "เวลาที่เปลี่ยน", "เวลาจบ", "ระยะเวลา\n(ชม.:นาที:วินาที)", "ระยะเวลา\n(นาที)", "หมายเหตุ"].map(h => [h, S.hd])); h5[he] = 40;
+    iv.forEach((x, i) => { evMs += x.b - x.a;
+      const pv = x.i > 0 ? a[x.i - 1].s : -1;
+      s5.push([[i + 1, S.int], [ser(midnight(x.a)), S.date], [dname(x.a), S.txtc], pv >= 0 ? [OPT.s[pv][0], S.st[pv]] : ["เริ่มบันทึก", S.txtc], [OPT.s[x.s][0], S.st[x.s]],
+        [ser(x.a), S.time], [ser(x.b), endStyle(x, S)], [dd(x.b - x.a), S.dur], [(x.b - x.a) / 60000, S.num], [note(x), S.txt]]); });
+    const l5 = s5.length, t5 = l5 + 1;
+    s5.push([["รวม (ตามตัวกรอง)", S.tTxt], ["", S.tTxt], ["", S.tTxt], ["", S.tTxt], [{f:"SUBTOTAL(103,E" + (he + 1) + ":E" + l5 + ")", v: iv.length}, S.tInt], ["ครั้ง", S.tTxt], ["", S.tTxt],
+      [{f:"SUBTOTAL(109,H" + (he + 1) + ":H" + l5 + ")", v: dd(evMs)}, S.tDur], [{f:"SUBTOTAL(109,I" + (he + 1) + ":I" + l5 + ")", v: evMs / 60000}, S.tNum], ["", S.tTxt]]);
+    m5.push("A" + t5 + ":D" + t5);
+
+    const sheets = [
+      {name:"สรุป", xml: XL.sheet(s1, {widths:[18, 12, 18, 12, 12, 14, 12, 22], merges:m1, heights:h1, active:true, onePage:true})},
+      {name:"รายวัน", xml: XL.sheet(s2, {widths:[13, 7, ...OPT.s.flatMap(() => [8, 19]), 19, 12], merges:m2, heights:h2, freeze:{r:hr + 1, c:2}, landscape:true})},
+      {name:"หยุดไลน์รายชั่วโมง", xml: XL.sheet(s3, {widths:[17, ...days.map(() => many ? 8.5 : 12), 11], heights:h3, freeze:{r:hg, c:1}, landscape:days.length > 4, onePage:true})},
+      {name:"เปลี่ยนสถานะ", filter:"A" + he + ":J" + Math.max(l5, he), xml: XL.sheet(s5, {widths:[8, 12, 7, 16, 16, 14, 20, 19, 12, 28], merges:m5, heights:h5,
+        freeze:{r:he, c:0}, filter:"A" + he + ":J" + Math.max(l5, he), landscape:true})}
+    ];
+    const blob = await XL.book(sheets, STY);
+    const name = "StatusMachine_" + LINE.replace(/[^\w\-]+/g, "") + (day ? "_" + ymd(day) : span ? "_" + days.length + (days.length === 1 ? "day_" : "days_") + ymd(R0) + "_to_" + ymd(d0) : "_7days_" + ymd(pStart) + "_to_" + ymd(addDays(pStart, PERIOD_DAYS - 1))) + ".xlsx";
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    toast("ส่งออกแล้ว: " + name, 6000);
+  } catch (e) {
+    console.error(e);
+    toast("ส่งออกไม่สำเร็จ: " + (e && e.message || e), 6000);
+  } finally {
+    xlBusy = false;
   }
-  const t3 = s3.length + 1, tr3 = [["รวมทั้งวัน", S.tTxt]];
-  for (let c = 1; c <= lastC; c++) tr3.push([{f:"SUM(" + C(c) + (hh + 1) + ":" + C(c) + (t3 - 1) + ")"}, S.tNum]);
-  s3.push(tr3);
-
-  /* ชีต 4: เหตุการณ์ทั้งหมด */
-  const s4 = [], m4 = [], h4 = {1: 26};
-  title(s4, "รายการเหตุการณ์ทั้งหมด", "ใช้ปุ่มตัวกรองที่หัวตารางเลือกสถานะหรือวันที่ได้ แถวรวมด้านล่างจะคำนวณตามที่กรองไว้");
-  const he = s4.length + 1;
-  s4.push(["ลำดับ", "วันที่", "วัน", "สถานะ", "เวลาเริ่ม", "เวลาจบ", "ระยะเวลา\n(ชม.:นาที:วินาที)", "ระยะเวลา\n(นาที)", "หมายเหตุ"].map(h => [h, S.hd])); h4[he] = 36;
-  iv.forEach((x, i) => s4.push([[i + 1, S.int], [ser(midnight(x.a)), S.date], [dname(x.a), S.txtc], [OPT.s[x.s][0], S.st[x.s]],
-    [ser(x.a), S.time], [ser(x.b), endStyle(x, S)], [dd(x.b - x.a), S.dur], [(x.b - x.a) / 60000, S.num], [note(x), S.txt]]));
-  const l4 = s4.length, t4 = l4 + 1;
-  s4.push([["รวม (ตามตัวกรอง)", S.tTxt], ["", S.tTxt], ["", S.tTxt], [{f:"SUBTOTAL(103,D" + (he + 1) + ":D" + l4 + ")"}, S.tInt], ["ครั้ง", S.tTxt], ["", S.tTxt],
-    [{f:"SUBTOTAL(109,G" + (he + 1) + ":G" + l4 + ")"}, S.tDur], [{f:"SUBTOTAL(109,H" + (he + 1) + ":H" + l4 + ")"}, S.tNum], ["", S.tTxt]]);
-  m4.push("A" + t4 + ":C" + t4);
-
-  const blob = XL.book([
-    {name:"สรุป", xml: XL.sheet(s1, {widths:[18, 12, 18, 12, 12, 14, 12, 22], merges:m1, heights:h1, active:true, onePage:true})},
-    {name:"รายวัน", xml: XL.sheet(s2, {widths:[13, 7, ...OPT.s.flatMap(() => [8, 15]), 15, 12], merges:m2, heights:h2, freeze:{r:hr + 1, c:2}, landscape:true})},
-    {name:"หยุดไลน์รายชั่วโมง", xml: XL.sheet(s3, {widths:[17, ...days.map(() => many ? 8.5 : 12), 11], heights:h3, freeze:{r:hh, c:1}, landscape:days.length > 4, onePage:true})},
-    {name:"เหตุการณ์", filter:"A" + he + ":I" + l4, xml: XL.sheet(s4, {widths:[8, 12, 7, 16, 11, 20, 17, 12, 28], merges:m4, heights:h4,
-      freeze:{r:he, c:0}, filter:"A" + he + ":I" + Math.max(l4, he), landscape:true})}
-  ], STY);
-  const name = "StatusMachine_" + LINE.replace(/[^\w\-]+/g, "") + (day ? "_" + ymd(day) : span ? "_" + days.length + "days_" + ymd(R0) + "_to_" + ymd(d0) : "_7days_" + ymd(pStart) + "_to_" + ymd(addDays(pStart, PERIOD_DAYS - 1))) + ".xlsx";
-  const url = URL.createObjectURL(blob), link = document.createElement("a");
-  link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-  toast("ส่งออกแล้ว: " + name);
 }
-
 let toastT;
-function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 3500); }
+function toast(msg, ms){ const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), ms || 3500); }
 $("exportXl2").addEventListener("click", () => exportExcel(null));
 $("exportXl30").addEventListener("click", () => exportExcel(null, KEEP_DAYS));
 
